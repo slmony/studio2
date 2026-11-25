@@ -129,6 +129,12 @@ export interface ClipTransform {
   blendMode: BlendMode;
 }
 
+export interface WordTiming {
+  word: string;
+  start: number; // seconds relative to clip start
+  end: number; // seconds relative to clip start
+}
+
 export interface TextStyleConfig {
   text: string;
   fontFamily: string;
@@ -150,6 +156,7 @@ export interface TextStyleConfig {
   shadowColor: string;
   highlightColor: string; // for karaoke caption active word
   maxWidthRatio: number; // 0.3..0.95
+  wordTimings?: WordTiming[];
 }
 
 export interface AudioConfig {
@@ -190,6 +197,7 @@ export interface Clip {
   shapeFill?: string;
   shapeFill2?: string;
   audio?: AudioConfig;
+  linkedCaptionId?: string;
 }
 
 export interface Track {
@@ -257,6 +265,7 @@ export interface ProjectState {
   clips: Clip[];
   markers: TimelineMarker[];
   savedCaption?: string;
+  needsAutoNarration?: boolean;
 }
 
 export interface MediaAsset {

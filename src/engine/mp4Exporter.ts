@@ -359,9 +359,9 @@ async function exportWithWebCodecs(params: {
     videoEncoder.encode(frame, { keyFrame });
     frame.close();
 
-    // Prevent encoder queue backpressure
-    if (videoEncoder.encodeQueueSize > 8) {
-      await new Promise((r) => setTimeout(r, 8));
+    // Prevent encoder queue backpressure during long 50s+ 1080p renders
+    while (videoEncoder.encodeQueueSize > 6) {
+      await new Promise((r) => setTimeout(r, 12));
     }
 
     if (i % Math.max(1, Math.floor(fps / 3)) === 0 || i === totalFrames - 1) {

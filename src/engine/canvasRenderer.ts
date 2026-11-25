@@ -373,13 +373,40 @@ function drawTextOrCaptionClip(
     ctx.restore();
   }
 
-  // Karaoke word-highlight mode for caption clips
+  // Karaoke word-highlight mode for caption clips (word-by-word synced to narration audio!)
   if (clip.kind === "caption") {
     const allWords = displayText.trim().split(/\s+/).filter(Boolean);
-    const activeWordIdx = Math.min(
-      allWords.length - 1,
-      Math.max(0, Math.floor((localTime / Math.max(0.1, clip.duration)) * allWords.length))
-    );
+    let activeWordIdx = 0;
+
+    if (ts.wordTimings && ts.wordTimings.length > 0) {
+      // Exact millisecond match against acoustic word timings
+      let found = -1;
+      for (let idx = 0; idx < ts.wordTimings.length; idx++) {
+        const wt = ts.wordTimings[idx];
+        if (localTime >= wt.start && localTime <= wt.end) {
+          found = idx;
+          break;
+        }
+        if (localTime > wt.end) {
+          found = idx;
+        }
+      }
+      activeWordIdx = Math.max(0, Math.min(allWords.length - 1, found === -1 ? 0 : found));
+    } else {
+      // Character-weighted fallback when no TTS word timings are attached yet
+      const weights = allWords.map((wd) => Math.max(2, wd.length + (/[،؛.!؟]$/.test(wd) ? 3 : 0)));
+      const totalW = weights.reduce((a, b) => a + b, 0) || 1;
+      const target = (localTime / Math.max(0.1, clip.duration)) * totalW;
+      let acc = 0;
+      for (let idx = 0; idx < weights.length; idx++) {
+        acc += weights[idx];
+        if (target <= acc) {
+          activeWordIdx = idx;
+          break;
+        }
+        activeWordIdx = idx;
+      }
+    }
 
     let runningWordIdx = 0;
     for (let li = 0; li < lines.length; li++) {
@@ -401,27 +428,28 @@ function drawTextOrCaptionClip(
         const ww = wordWidths[wi];
         const wordCenterX = cursorX - ww / 2;
         const isActive = runningWordIdx === activeWordIdx;
+        const isUpcoming = runningWordIdx > activeWordIdx;
 
         ctx.save();
         ctx.textAlign = "center";
         if (isActive) {
-          // Draw crisp highlight pill behind the active spoken word
+          // Draw crisp highlight pill behind the exact active spoken word
           ctx.fillStyle = ts.highlightColor || "#F97316";
-          const hPad = 10 * scaleFactor;
+          const hPad = 11 * scaleFactor;
           drawRoundedRect(
             ctx,
             wordCenterX - ww / 2 - hPad,
-            y - fontSize * 0.62,
+            y - fontSize * 0.64,
             ww + hPad * 2,
-            fontSize * 1.24,
-            10 * scaleFactor
+            fontSize * 1.28,
+            11 * scaleFactor
           );
           ctx.fill();
         }
 
         if (ts.shadowBlur > 0) {
           ctx.shadowBlur = ts.shadowBlur * scaleFactor;
-          ctx.shadowColor = ts.shadowColor || "rgba(0,0,0,0.75)";
+          ctx.shadowColor = ts.shadowColor || "rgba(0,0,0,0.78)";
         }
         if (ts.strokeWidth > 0 && !isActive) {
           ctx.lineWidth = ts.strokeWidth * scaleFactor;
@@ -429,7 +457,11 @@ function drawTextOrCaptionClip(
           ctx.lineJoin = "round";
           ctx.strokeText(word, wordCenterX, y);
         }
-        ctx.fillStyle = isActive ? "#FFFFFF" : ts.color;
+        ctx.fillStyle = isActive
+          ? "#FFFFFF"
+          : isUpcoming
+          ? "rgba(255, 255, 255, 0.72)"
+          : ts.color;
         ctx.fillText(word, wordCenterX, y);
         ctx.restore();
 

@@ -68,7 +68,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onToggleTrackFlag,
   onMoveTrackOrder,
 }) => {
-  const [pxPerSec, setPxPerSec] = useState(64);
+  const [pxPerSec, setPxPerSec] = useState(26);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const timelineLength = Math.max(totalDuration + 4, 16);
   const timelineWidthPx = Math.max(760, Math.round(timelineLength * pxPerSec));
@@ -251,13 +251,37 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             <Magnet className="w-3.5 h-3.5" />
             <span>چسبندگی</span>
           </button>
+
+          {project.markers.length > 0 && (
+            <div className="hidden xl:flex items-center gap-1 border-r border-[#252D3D] pr-2.5 mr-1 overflow-x-auto max-w-[420px]">
+              {project.markers.map((mk, idx) => {
+                const isActive =
+                  currentTime >= mk.time &&
+                  (idx === project.markers.length - 1 || currentTime < project.markers[idx + 1].time);
+                return (
+                  <button
+                    key={mk.id}
+                    type="button"
+                    onClick={() => onSeek(mk.time)}
+                    className={`px-2 py-1 rounded text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                      isActive
+                        ? "bg-[#1B212E] text-[#F97316]"
+                        : "text-[#94A3B8] hover:text-white hover:bg-[#1B212E]/70"
+                    }`}
+                  >
+                    {mk.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Zoom Controls */}
-        <div className="flex items-center gap-2 text-xs text-[#94A3B8]">
+        <div className="flex items-center gap-2 text-xs text-[#94A3B8] shrink-0">
           <button
             type="button"
-            onClick={() => setPxPerSec((z) => Math.max(24, z - 16))}
+            onClick={() => setPxPerSec((z) => Math.max(14, z - 12))}
             title="کوچک‌نمایی تایم‌لاین"
             className="p-1 rounded hover:bg-[#1B212E] hover:text-white"
           >
@@ -265,7 +289,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           </button>
           <input
             type="range"
-            min={24}
+            min={14}
             max={160}
             value={pxPerSec}
             onChange={(e) => setPxPerSec(Number(e.target.value))}
@@ -274,7 +298,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           />
           <button
             type="button"
-            onClick={() => setPxPerSec((z) => Math.min(160, z + 16))}
+            onClick={() => setPxPerSec((z) => Math.min(160, z + 12))}
             title="بزرگ‌نمایی تایم‌لاین"
             className="p-1 rounded hover:bg-[#1B212E] hover:text-white"
           >

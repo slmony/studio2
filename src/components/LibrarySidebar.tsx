@@ -49,6 +49,15 @@ export type SidebarTab =
   | "audio"
   | "ai";
 
+export interface NarrationState {
+  active: boolean;
+  current: number;
+  total: number;
+  error: string | null;
+  voiceName: string;
+  doneCount: number;
+}
+
 interface LibrarySidebarProps {
   activeTab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
@@ -69,6 +78,9 @@ interface LibrarySidebarProps {
   onSaveSocialCaption: (caption: string) => void;
   onApplyAiStyle: (style: AiStyleDirectorResult) => void;
   hasSelectedVisualClip: boolean;
+  narrationState: NarrationState;
+  captionCount: number;
+  onGenerateProjectNarration: (voiceName: string, style: string) => void;
 }
 
 const TABS: Array<{ id: SidebarTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -101,12 +113,21 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
   onSaveSocialCaption,
   onApplyAiStyle,
   hasSelectedVisualClip,
+  narrationState,
+  captionCount,
+  onGenerateProjectNarration,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Quick karaoke caption input
   const [quickCaptionText, setQuickCaptionText] = useState("");
+
+  // AI Young Male Narrator controls
+  const [narratorVoice, setNarratorVoice] = useState<string>("Puck");
+  const [narratorStyle, setNarratorStyle] = useState<string>(
+    "Energetic, enthusiastic young Persian male commercial narrator, crisp diction, vibrant and exciting promotional pace"
+  );
 
   // Microphone voiceover recorder state
   const [isRecording, setIsRecording] = useState(false);
@@ -544,10 +565,86 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
         {activeTab === "audio" && (
           <div className="space-y-4">
             <div>
-              <h3 className="text-xs font-bold text-white">موسیقی، افکت صوتی و ضبط نریشن</h3>
+              <h3 className="text-xs font-bold text-white">گوینده هوشمند، موسیقی و افکت صوتی</h3>
               <p className="text-[11px] text-[#94A3B8] mt-1">
                 تمام صداها با کیفیت استریو وارد فایل خروجی MP4 می‌شوند.
               </p>
+            </div>
+
+            {/* AI Young Male Narrator Word-by-Word Sync Card */}
+            <div className="p-3 rounded-lg border border-[#F97316]/40 bg-[#0B0D11] space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-[#F97316]" />
+                  نریشن آقای جوان (سینک کلمه‌به‌کلمه)
+                </span>
+                <span className="text-[10px] font-mono-tabular text-[#94A3B8]">
+                  {captionCount} جمله
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-[#94A3B8] block">انتخاب صدای گوینده</label>
+                  <select
+                    value={narratorVoice}
+                    onChange={(e) => setNarratorVoice(e.target.value)}
+                    disabled={narrationState.active}
+                    className="w-full rounded-md bg-[#131720] border border-[#252D3D] p-1.5 text-[11px] text-white outline-none"
+                  >
+                    <option value="Puck">آقای جوان پرانرژی و هیجان‌انگیز (پیشنهادی)</option>
+                    <option value="Fenrir">آقای جوان محکم و تبلیغاتی</option>
+                    <option value="Charon">صدای مردانه گرم و سینمایی</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] text-[#94A3B8] block">لحن و سرعت اجرا</label>
+                  <select
+                    value={narratorStyle}
+                    onChange={(e) => setNarratorStyle(e.target.value)}
+                    disabled={narrationState.active}
+                    className="w-full rounded-md bg-[#131720] border border-[#252D3D] p-1.5 text-[11px] text-white outline-none"
+                  >
+                    <option value="Energetic, enthusiastic young Persian male commercial narrator, crisp diction, vibrant and exciting promotional pace">
+                      تبلیغاتی پرشور و هیجان‌انگیز
+                    </option>
+                    <option value="Friendly, warm young Persian male presenter, natural conversational Instagram reel energy, clear articulation">
+                      صمیمی و ریلزی پرانرژی
+                    </option>
+                    <option value="Confident, bold young Persian male trailer voiceover, dramatic emphasis and crisp studio diction">
+                      محکم و سینمایی (تیزر برند)
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={narrationState.active || captionCount === 0}
+                onClick={() => onGenerateProjectNarration(narratorVoice, narratorStyle)}
+                className="w-full py-2 px-3 rounded-lg bg-[#F97316] hover:bg-[#FB923C] disabled:opacity-50 text-[#0B0D11] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors"
+              >
+                {narrationState.active ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span className="font-mono-tabular">
+                      ساخت نریشن ({narrationState.current} از {narrationState.total})...
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>ساخت / بازسازی نریشن سینک‌شده کل ویدیو</span>
+                  </>
+                )}
+              </button>
+
+              {narrationState.error && (
+                <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-[10px] text-red-300 leading-relaxed">
+                  {narrationState.error}
+                </div>
+              )}
             </div>
 
             <input

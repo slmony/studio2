@@ -1,5 +1,7 @@
 import "dotenv/config";
+import crypto from "crypto";
 import express from "express";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
@@ -10,14 +12,21 @@ const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 3000;
 const MODEL_NAME = "gemini-4-hydrogen";
+const TTS_MODEL_NAME = "gemini-3.8-flash-lite-tts";
 
-function getGeminiClient(): GoogleGenAI {
+const NARRATION_CACHE_DIR = path.resolve(__dirname, ".narration-cache");
+if (!fs.existsSync(NARRATION_CACHE_DIR)) {
+  fs.mkdirSync(NARRATION_CACHE_DIR, { recursive: true });
+}
+
+function getGeminiClient(apiVersion = "v1beta"): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("کلید API هوش مصنوعی در تنظیمات محیط سرور پیکربندی نشده است.");
   }
   return new GoogleGenAI({
     apiKey,
+    apiVersion,
     httpOptions: {
       headers: {
         "User-Agent": "aistudio-build",
@@ -46,9 +55,308 @@ function formatApiError(err: unknown): { status: number; message: string } {
   };
 }
 
+interface WordTiming {
+  word: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * Parses a 16-bit mono/stereo WAV file from Gemini TTS, trims leading/trailing
+ * dead silence so speech hits right on beat, and computes acoustic-aligned
+ * word-by-word timings locked to the real spoken energy envelope.
+ */
+function processWavAndAlignWords(
+  wavBuf: Buffer,
+  text: string
+): { trimmedWav: Buffer; duration: number; wordTimings: WordTiming[] } {
+  // Locate 'data' chunk safely inside RIFF WAV
+  let dataOffset = 44;
+  let dataSize = Math.max(0, wavBuf.length - 44);
+  let sampleRate = 24000;
+  let numChannels = 1;
+  let bitsPerSample = 16;
+
+  if (wavBuf.length > 44 && wavBuf.toString("ascii", 0, 4) === "RIFF") {
+    let pos = 12;
+    while (pos + 8 <= wavBuf.length) {
+      const chunkId = wavBuf.toString("ascii", pos, pos + 4);
+      const chunkLen = wavBuf.readUInt32LE(pos + 4);
+      if (chunkId === "fmt " && pos + 24 <= wavBuf.length) {
+        numChannels = wavBuf.readUInt16LE(pos + 10) || 1;
+        sampleRate = wavBuf.readUInt32LE(pos + 12) || 24000;
+        bitsPerSample = wavBuf.readUInt16LE(pos + 22) || 16;
+      } else if (chunkId === "data") {
+        dataOffset = pos + 8;
+        dataSize = Math.min(chunkLen, wavBuf.length - dataOffset);
+        break;
+      }
+      pos += 8 + chunkLen + (chunkLen % 2);
+    }
+  }
+
+  const bytesPerSample = Math.max(1, bitsPerSample / 8);
+  const blockAlign = bytesPerSample * numChannels;
+  const totalSamples = Math.floor(dataSize / blockAlign);
+
+  if (totalSamples < 240) {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    const dur = Math.max(0.5, totalSamples / sampleRate);
+    return {
+      trimmedWav: wavBuf,
+      duration: dur,
+      wordTimings: words.map((w, i) => ({
+        word: w,
+        start: Number(((i / Math.max(1, words.length)) * dur).toFixed(3)),
+        end: Number((((i + 1) / Math.max(1, words.length)) * dur).toFixed(3)),
+      })),
+    };
+  }
+
+  // Extract mono Float32 samples
+  const samples = new Float32Array(totalSamples);
+  for (let i = 0; i < totalSamples; i++) {
+    const byteIdx = dataOffset + i * blockAlign;
+    samples[i] = wavBuf.readInt16LE(byteIdx) / 32768;
+  }
+
+  // Compute 10ms RMS energy frames
+  const frameSize = Math.max(1, Math.floor(sampleRate * 0.01));
+  const numFrames = Math.floor(totalSamples / frameSize);
+  const rms = new Float32Array(numFrames);
+  let peakRms = 0.001;
+  for (let f = 0; f < numFrames; f++) {
+    let sum = 0;
+    const base = f * frameSize;
+    for (let j = 0; j < frameSize; j++) {
+      const v = samples[base + j];
+      sum += v * v;
+    }
+    const val = Math.sqrt(sum / frameSize);
+    rms[f] = val;
+    if (val > peakRms) peakRms = val;
+  }
+
+  const silenceThresh = Math.max(0.012, peakRms * 0.065);
+  let startFrame = 0;
+  while (startFrame < numFrames - 1 && rms[startFrame] < silenceThresh) startFrame++;
+  let endFrame = numFrames - 1;
+  while (endFrame > startFrame && rms[endFrame] < silenceThresh) endFrame--;
+
+  // Keep 20ms natural attack and 70ms natural release
+  startFrame = Math.max(0, startFrame - 2);
+  endFrame = Math.min(numFrames - 1, endFrame + 7);
+
+  const trimStartSample = startFrame * frameSize;
+  const trimEndSample = Math.min(totalSamples, (endFrame + 1) * frameSize);
+  const trimmedSampleCount = Math.max(frameSize, trimEndSample - trimStartSample);
+  const trimmedDataBytes = trimmedSampleCount * blockAlign;
+
+  // Rebuild clean 44-byte RIFF WAV header for trimmed audio
+  const trimmedWav = Buffer.alloc(44 + trimmedDataBytes);
+  trimmedWav.write("RIFF", 0, "ascii");
+  trimmedWav.writeUInt32LE(36 + trimmedDataBytes, 4);
+  trimmedWav.write("WAVE", 8, "ascii");
+  trimmedWav.write("fmt ", 12, "ascii");
+  trimmedWav.writeUInt32LE(16, 16);
+  trimmedWav.writeUInt16LE(1, 20); // PCM
+  trimmedWav.writeUInt16LE(numChannels, 22);
+  trimmedWav.writeUInt32LE(sampleRate, 24);
+  trimmedWav.writeUInt32LE(sampleRate * blockAlign, 28);
+  trimmedWav.writeUInt16LE(blockAlign, 32);
+  trimmedWav.writeUInt16LE(bitsPerSample, 34);
+  trimmedWav.write("data", 36, "ascii");
+  trimmedWav.writeUInt32LE(trimmedDataBytes, 40);
+  wavBuf.copy(
+    trimmedWav,
+    44,
+    dataOffset + trimStartSample * blockAlign,
+    dataOffset + trimEndSample * blockAlign
+  );
+
+  const duration = Number((trimmedSampleCount / sampleRate).toFixed(3));
+  const activeFrames = endFrame - startFrame + 1;
+
+  // Build cumulative acoustic speech activity curve (pauses stay flat, speech rises)
+  const cumActivity = new Float32Array(activeFrames + 1);
+  for (let i = 0; i < activeFrames; i++) {
+    const e = rms[startFrame + i];
+    // Compress dynamic range with sqrt so quieter consonants still advance time while silence pauses flat
+    const speechWeight = e > silenceThresh * 0.7 ? Math.pow(e / peakRms, 0.45) + 0.12 : 0.02;
+    cumActivity[i + 1] = cumActivity[i] + speechWeight;
+  }
+  const totalActivity = Math.max(0.001, cumActivity[activeFrames]);
+
+  // Compute Persian phonetic duration weights for every word
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const weights = words.map((w) => {
+    const clean = w.replace(/[،؛.!؟:«»()\-]/g, "");
+    let score = 0.9;
+    for (const ch of clean) {
+      if ("اویآ".includes(ch)) score += 0.62; // long Persian vowels
+      else if (ch === "\u200c") score += 0.15; // ZWNJ half-space
+      else score += 0.42;
+    }
+    if (/[،؛:]$/.test(w)) score += 1.4; // natural comma/semicolon pause
+    if (/[.!؟]$/.test(w)) score += 1.1;
+    return score;
+  });
+
+  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+  const wordTimings: WordTiming[] = [];
+  let accWeight = 0;
+  let prevTime = 0;
+
+  for (let wi = 0; wi < words.length; wi++) {
+    accWeight += weights[wi];
+    const targetAct = (accWeight / totalWeight) * totalActivity;
+
+    // Binary search frame matching cumulative acoustic activity
+    let lo = 0;
+    let hi = activeFrames;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (cumActivity[mid] < targetAct) lo = mid + 1;
+      else hi = mid;
+    }
+
+    // Snap internal word boundaries toward local energy valley within ±80ms
+    let bestFrame = lo;
+    if (wi < words.length - 1) {
+      const winStart = Math.max(1, lo - 8);
+      const winEnd = Math.min(activeFrames - 2, lo + 8);
+      let minRms = rms[startFrame + lo] ?? peakRms;
+      for (let f = winStart; f <= winEnd; f++) {
+        const val = rms[startFrame + f] ?? peakRms;
+        if (val < minRms * 0.85) {
+          minRms = val;
+          bestFrame = f;
+        }
+      }
+    } else {
+      bestFrame = activeFrames;
+    }
+
+    const endTime = Math.min(
+      duration,
+      Math.max(prevTime + 0.06, Number(((bestFrame * frameSize) / sampleRate).toFixed(3)))
+    );
+    wordTimings.push({
+      word: words[wi],
+      start: Number(prevTime.toFixed(3)),
+      end: wi === words.length - 1 ? duration : endTime,
+    });
+    prevTime = endTime;
+  }
+
+  return { trimmedWav, duration, wordTimings };
+}
+
+async function generateOrFetchCachedTts(params: {
+  text: string;
+  voiceName: string;
+  style: string;
+}): Promise<{ audioUrl: string; duration: number; wordTimings: WordTiming[] }> {
+  const { text, voiceName, style } = params;
+  const hash = crypto
+    .createHash("sha256")
+    .update(`${TTS_MODEL_NAME}|${voiceName}|${style}|${text.trim()}`)
+    .digest("hex")
+    .slice(0, 20);
+
+  const wavPath = path.join(NARRATION_CACHE_DIR, `${hash}.wav`);
+  const metaPath = path.join(NARRATION_CACHE_DIR, `${hash}.json`);
+
+  if (fs.existsSync(wavPath) && fs.existsSync(metaPath)) {
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as {
+      duration: number;
+      wordTimings: WordTiming[];
+    };
+    return {
+      audioUrl: `/api/narration-cache/${hash}.wav`,
+      duration: meta.duration,
+      wordTimings: meta.wordTimings,
+    };
+  }
+
+  const ai = getGeminiClient("v1beta");
+  let response: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
+  let lastErr: unknown = null;
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      response = await ai.models.generateContent({
+        model: TTS_MODEL_NAME,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: text.trim(),
+                speechMetadata: {
+                  style,
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName },
+            },
+          },
+        },
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if ((msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) && attempt < 3) {
+        await new Promise((r) => setTimeout(r, 4000 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (!response) {
+    throw lastErr ?? new Error("پاسخ صوتی از سرویس گویندگی دریافت نشد.");
+  }
+
+  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (!base64Audio) {
+    throw new Error("پاسخ صوتی از سرویس گویندگی دریافت نشد.");
+  }
+
+  const rawWav = Buffer.from(base64Audio, "base64");
+  const { trimmedWav, duration, wordTimings } = processWavAndAlignWords(rawWav, text);
+
+  fs.writeFileSync(wavPath, trimmedWav);
+  fs.writeFileSync(metaPath, JSON.stringify({ duration, wordTimings }));
+
+  return {
+    audioUrl: `/api/narration-cache/${hash}.wav`,
+    duration,
+    wordTimings,
+  };
+}
+
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: "2mb" }));
+  app.use(express.json({ limit: "4mb" }));
+
+  // Serve cached TTS WAV files directly with proper audio/wav content-type
+  app.use(
+    "/api/narration-cache",
+    express.static(NARRATION_CACHE_DIR, {
+      setHeaders: (res) => {
+        res.setHeader("Content-Type", "audio/wav");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+      },
+    })
+  );
 
   // 1. AI Reel Script & Scene Generator
   app.post("/api/ai/script", async (req, res) => {
@@ -265,6 +573,35 @@ ${scriptText.trim()}
 
       const parsed = JSON.parse((response.text ?? "{}").trim());
       return res.json(parsed);
+    } catch (err) {
+      const formatted = formatApiError(err);
+      return res.status(formatted.status).json({ error: formatted.message });
+    }
+  });
+
+  // 5. AI Young Male Voiceover TTS with Acoustic Word-by-Word Alignment
+  app.post("/api/ai/tts", async (req, res) => {
+    try {
+      const {
+        text,
+        voiceName = "Puck",
+        style = "Energetic, enthusiastic young Persian male commercial narrator, crisp diction, vibrant and exciting promotional pace",
+      } = req.body ?? {};
+
+      if (!text || typeof text !== "string" || !text.trim()) {
+        return res.status(400).json({ error: "متن نریشن نمی‌تواند خالی باشد." });
+      }
+
+      const validVoices = new Set(["Puck", "Fenrir", "Charon", "Kore", "Zephyr"]);
+      const safeVoice = validVoices.has(voiceName) ? voiceName : "Puck";
+
+      const result = await generateOrFetchCachedTts({
+        text: text.trim(),
+        voiceName: safeVoice,
+        style,
+      });
+
+      return res.json(result);
     } catch (err) {
       const formatted = formatApiError(err);
       return res.status(formatted.status).json({ error: formatted.message });

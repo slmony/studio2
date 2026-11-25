@@ -354,9 +354,11 @@ export async function renderProjectAudioMix(
       eq.connect(gain);
       gain.connect(offline.destination);
 
+      const speed = Math.max(0.25, Math.min(4, clip.speed || 1));
       const offset = Math.max(0, Math.min(buf.duration - 0.05, clip.trimStart || 0));
-      const playDur = Math.max(0.05, endTime - startTime);
-      source.start(startTime, offset, playDur);
+      const timelineDur = Math.max(0.05, endTime - startTime);
+      const bufferDur = Math.min(buf.duration - offset, timelineDur * speed);
+      source.start(startTime, offset, Math.max(0.05, bufferDur));
       scheduledAny = true;
     } catch {
       // Ignore video clips that have no audio track
@@ -374,6 +376,7 @@ export class LiveAudioPlayer {
   private activeSources: AudioBufferSourceNode[] = [];
   private masterGain: GainNode | null = null;
   private isMuted = false;
+  private playSessionId = 0;
 
   setMuted(muted: boolean) {
     this.isMuted = muted;
@@ -383,6 +386,7 @@ export class LiveAudioPlayer {
   }
 
   stopAll() {
+    this.playSessionId += 1;
     for (const src of this.activeSources) {
       try {
         src.stop();
@@ -396,6 +400,9 @@ export class LiveAudioPlayer {
 
   async playFrom(project: ProjectState, fromTime: number) {
     this.stopAll();
+    const sessionId = this.playSessionId;
+    const callStartedMs = performance.now();
+
     const ctx = getAudioContext();
     if (!this.masterGain) {
       this.masterGain = ctx.createGain();
@@ -405,7 +412,6 @@ export class LiveAudioPlayer {
 
     const anySolo = project.tracks.some((t) => t.solo);
     const trackMap = new Map(project.tracks.map((t) => [t.id, t]));
-    const now = ctx.currentTime + 0.02;
 
     const audioClips = project.clips.filter((c) => {
       if (c.kind !== "audio") return false;
@@ -416,28 +422,50 @@ export class LiveAudioPlayer {
       return c.start + c.duration > fromTime;
     });
 
-    for (const clip of audioClips) {
-      try {
-        let buf: AudioBuffer | null = null;
-        if (clip.audio?.synthId) {
-          buf = generateSynthBuffer(clip.audio.synthId, Math.max(clip.duration, 1), ctx.sampleRate);
-        } else if (clip.src) {
-          buf = await decodeAudioUrl(clip.src);
+    // Decode all needed buffers in parallel so scheduling is instantaneous and drift-free
+    const resolved = await Promise.all(
+      audioClips.map(async (clip) => {
+        try {
+          let buf: AudioBuffer | null = null;
+          if (clip.audio?.synthId) {
+            buf = generateSynthBuffer(clip.audio.synthId, Math.max(clip.duration, 1), ctx.sampleRate);
+          } else if (clip.src) {
+            buf = await decodeAudioUrl(clip.src);
+          }
+          return { clip, buf };
+        } catch {
+          return { clip, buf: null };
         }
-        if (!buf) continue;
+      })
+    );
 
+    if (sessionId !== this.playSessionId) return;
+
+    const decodeElapsedSec = Math.max(0, (performance.now() - callStartedMs) / 1000);
+    const effectiveFrom = fromTime + decodeElapsedSec;
+    const now = ctx.currentTime + 0.015;
+
+    for (const { clip, buf } of resolved) {
+      if (!buf) continue;
+      if (clip.start + clip.duration <= effectiveFrom + 0.02) continue;
+
+      try {
         const source = ctx.createBufferSource();
         source.buffer = buf;
-        source.playbackRate.value = Math.max(0.25, Math.min(4, clip.speed || 1));
+        const speed = Math.max(0.25, Math.min(4, clip.speed || 1));
+        source.playbackRate.value = speed;
 
         const eq = applyEqNode(ctx, clip.audio?.eqPreset ?? "normal");
         const gain = ctx.createGain();
         const vol = Math.max(0, Math.min(2, clip.audio?.volume ?? 0.9));
 
-        const delay = Math.max(0, clip.start - fromTime);
-        const alreadyElapsed = Math.max(0, fromTime - clip.start);
+        const delay = Math.max(0, clip.start - effectiveFrom);
+        const alreadyElapsed = Math.max(0, effectiveFrom - clip.start);
         const remaining = Math.max(0.05, clip.duration - alreadyElapsed);
-        const offset = Math.min(buf.duration - 0.05, (clip.trimStart || 0) + alreadyElapsed);
+        const offset = Math.min(
+          Math.max(0, buf.duration - 0.05),
+          (clip.trimStart || 0) + alreadyElapsed * speed
+        );
 
         const startAt = now + delay;
         const fadeIn = Math.max(0, clip.audio?.fadeIn ?? 0);
@@ -458,10 +486,11 @@ export class LiveAudioPlayer {
         source.connect(eq);
         eq.connect(gain);
         gain.connect(this.masterGain);
-        source.start(startAt, Math.max(0, offset), remaining);
+        const bufferDur = Math.min(buf.duration - Math.max(0, offset), remaining * speed);
+        source.start(startAt, Math.max(0, offset), Math.max(0.05, bufferDur));
         this.activeSources.push(source);
       } catch {
-        // ignore decode error
+        // ignore playback scheduling error
       }
     }
   }

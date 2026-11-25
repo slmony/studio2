@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExportModal } from "./components/ExportModal";
 import { InspectorPanel } from "./components/InspectorPanel";
-import { LibrarySidebar, type SidebarTab } from "./components/LibrarySidebar";
+import { LibrarySidebar, type NarrationState, type SidebarTab } from "./components/LibrarySidebar";
 import { PreviewStage } from "./components/PreviewStage";
 import { ProjectsModal, ShortcutsModal } from "./components/StudioModals";
 import { TimelinePanel } from "./components/TimelinePanel";
@@ -51,7 +51,11 @@ import type {
   TextStyleConfig,
   TimelineMarker,
   TransitionType,
+  WordTiming,
 } from "./types/studio";
+
+const DEFAULT_NARRATOR_STYLE =
+  "Energetic, enthusiastic young Persian male commercial narrator, crisp diction, vibrant and exciting promotional pace";
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -81,13 +85,29 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [savedProjects, setSavedProjects] = useState<ProjectState[]>(() => loadSavedProjects());
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [narrationState, setNarrationState] = useState<NarrationState>({
+    active: false,
+    current: 0,
+    total: 0,
+    error: null,
+    voiceName: "Puck",
+    doneCount: 0,
+  });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaCacheRef = useRef(createMediaCache());
   const audioPlayerRef = useRef(new LiveAudioPlayer());
   const toastTimerRef = useRef<number | null>(null);
+  const projectRef = useRef<ProjectState>(project);
+  projectRef.current = project;
+  const narrationJobIdRef = useRef(0);
+  const autoNarratedKeyRef = useRef<string | null>(null);
 
   const totalDuration = useMemo(() => getProjectDuration(project), [project]);
+  const captionCount = useMemo(
+    () => project.clips.filter((c) => c.kind === "caption" && c.textStyle?.text?.trim()).length,
+    [project.clips]
+  );
 
   const selectedClip = useMemo(
     () => project.clips.find((c) => c.id === selectedClipId) ?? null,
@@ -1013,6 +1033,203 @@ export default function App() {
     [mutateProject, notify]
   );
 
+  // Synthesize Young Male Narration & Sync Word-by-Word with Every Caption Clip
+  const handleGenerateProjectNarration = useCallback(
+    async (voiceName = "Puck", style = DEFAULT_NARRATOR_STYLE) => {
+      const snapshot = projectRef.current;
+      const captionClips = [...snapshot.clips]
+        .filter((c) => c.kind === "caption" && c.textStyle?.text?.trim())
+        .sort((a, b) => a.start - b.start);
+
+      if (captionClips.length === 0) {
+        notify("ابتدا حداقل یک زیرنویس کارائوکه به تایم‌لاین اضافه کنید.");
+        return;
+      }
+
+      const jobId = ++narrationJobIdRef.current;
+      setNarrationState({
+        active: true,
+        current: 0,
+        total: captionClips.length,
+        error: null,
+        voiceName,
+        doneCount: 0,
+      });
+
+      // Ensure dedicated narration track exists & duck background synth music cleanly
+      setProject((prev) => {
+        const hasVoiceTrack = prev.tracks.some((t) => t.id === "track-voice");
+        let tracks = prev.tracks;
+        if (!hasVoiceTrack) {
+          const voiceTrack = {
+            id: "track-voice",
+            name: "نریشن آقای جوان",
+            kind: "audio" as const,
+            visible: true,
+            locked: false,
+            muted: false,
+            solo: false,
+          };
+          const audioIdx = prev.tracks.findIndex((t) => t.kind === "audio");
+          tracks =
+            audioIdx >= 0
+              ? [...prev.tracks.slice(0, audioIdx), voiceTrack, ...prev.tracks.slice(audioIdx)]
+              : [...prev.tracks, voiceTrack];
+        }
+
+        const clips = prev.clips.map((c) => {
+          if (
+            c.kind === "audio" &&
+            c.audio?.synthId &&
+            !c.audio.synthId.startsWith("sfx-") &&
+            c.audio.volume > 0.32
+          ) {
+            return { ...c, audio: { ...c.audio, volume: 0.26 } };
+          }
+          return c;
+        });
+
+        return { ...prev, tracks, clips, updatedAt: Date.now() };
+      });
+
+      let completed = 0;
+
+      try {
+        for (let i = 0; i < captionClips.length; i++) {
+          if (narrationJobIdRef.current !== jobId) return;
+
+          const cap = captionClips[i];
+          const text = cap.textStyle!.text.trim();
+
+          setNarrationState((prev) => ({
+            ...prev,
+            current: i + 1,
+            total: captionClips.length,
+          }));
+
+          const res = await fetch("/api/ai/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, voiceName, style }),
+          });
+          const data = (await res.json()) as {
+            audioUrl?: string;
+            duration?: number;
+            wordTimings?: WordTiming[];
+            error?: string;
+          };
+
+          if (!res.ok || !data.audioUrl || !data.duration) {
+            throw new Error(data.error || "خطا در تولید صدای گوینده هوشمند.");
+          }
+          if (narrationJobIdRef.current !== jobId) return;
+
+          // Fit narration cleanly into its slide slot so voice never overlaps the next sentence
+          const nextCap = captionClips[i + 1];
+          const slideCeilEnd = Math.ceil((cap.start + 0.1) / 10) * 10 - 0.1;
+          const slotEnd = nextCap
+            ? Math.min(nextCap.start - 0.12, slideCeilEnd > cap.start + 1.5 ? slideCeilEnd : nextCap.start - 0.12)
+            : Math.max(cap.start + cap.duration, slideCeilEnd);
+          const slotMax = Math.max(1.8, slotEnd - cap.start);
+
+          const speed =
+            data.duration > slotMax ? Math.min(1.35, Number((data.duration / slotMax).toFixed(3))) : 1;
+          const effectiveDur = Number((data.duration / speed).toFixed(3));
+
+          const scaledTimings: WordTiming[] = (data.wordTimings ?? []).map((wt) => ({
+            word: wt.word,
+            start: Number((wt.start / speed).toFixed(3)),
+            end: Number((wt.end / speed).toFixed(3)),
+          }));
+
+          let waveform: number[] | undefined;
+          try {
+            const audioBuf = await decodeAudioUrl(data.audioUrl);
+            waveform = extractWaveformPeaks(audioBuf, 40);
+          } catch {
+            // Keep default waveform fallback if browser hasn't unlocked AudioContext yet
+          }
+          if (narrationJobIdRef.current !== jobId) return;
+
+          const narClipId = `nar-${cap.id}`;
+          const narrationClip = makeClip({
+            id: narClipId,
+            trackId: "track-voice",
+            kind: "audio",
+            name: `نریشن · ${cap.name}`,
+            src: data.audioUrl,
+            linkedCaptionId: cap.id,
+            start: cap.start,
+            duration: effectiveDur,
+            speed,
+            audio: {
+              volume: 1.28,
+              fadeIn: 0.02,
+              fadeOut: 0.06,
+              muted: false,
+              eqPreset: "voice",
+              waveform,
+            },
+          });
+
+          completed += 1;
+
+          // Atomically update matching caption duration + wordTimings AND place synced audio clip
+          setProject((prev) => {
+            const withoutOldNar = prev.clips.filter(
+              (c) => c.id !== narClipId && c.linkedCaptionId !== cap.id
+            );
+            const updatedClips = withoutOldNar.map((c) => {
+              if (c.id === cap.id && c.textStyle) {
+                return {
+                  ...c,
+                  duration: effectiveDur,
+                  textStyle: {
+                    ...c.textStyle,
+                    wordTimings: scaledTimings,
+                  },
+                };
+              }
+              return c;
+            });
+            return {
+              ...prev,
+              clips: [...updatedClips, narrationClip],
+              updatedAt: Date.now(),
+            };
+          });
+
+          setNarrationState((prev) => ({ ...prev, doneCount: completed }));
+        }
+
+        if (narrationJobIdRef.current !== jobId) return;
+        setProject((prev) => ({ ...prev, needsAutoNarration: false, updatedAt: Date.now() }));
+        setNarrationState((prev) => ({
+          ...prev,
+          active: false,
+          error: null,
+          doneCount: completed,
+        }));
+        notify("نریشن آقای جوان ساخته شد و کلمه‌به‌کلمه روی کل ویدیو سینک شد!");
+      } catch (err) {
+        if (narrationJobIdRef.current !== jobId) return;
+        const msg = err instanceof Error ? err.message : "خطا در ساخت نریشن هوش مصنوعی.";
+        setNarrationState((prev) => ({ ...prev, active: false, error: msg }));
+        notify(msg);
+      }
+    },
+    [notify]
+  );
+
+  // Auto-generate word-synced young male narration on projects flagged with needsAutoNarration
+  useEffect(() => {
+    if (!project.needsAutoNarration) return;
+    const key = `${project.id}-${project.updatedAt ? "auto" : "init"}`;
+    if (autoNarratedKeyRef.current === key) return;
+    autoNarratedKeyRef.current = key;
+    void handleGenerateProjectNarration("Puck", DEFAULT_NARRATOR_STYLE);
+  }, [project.id, project.needsAutoNarration, handleGenerateProjectNarration]);
+
   return (
     <div dir="rtl" className="h-screen w-screen overflow-hidden flex flex-col bg-[#0B0D11] text-[#F1F5F9]">
       {/* 3-Zone Top Bar */}
@@ -1055,6 +1272,8 @@ export default function App() {
             setIsPlaying(false);
             setCurrentTime(0);
             setSelectedClipId(null);
+            narrationJobIdRef.current += 1;
+            autoNarratedKeyRef.current = null;
             mutateProject(() => tpl.build());
             notify(`قالب «${tpl.name}» بارگذاری شد.`);
           }}
@@ -1076,6 +1295,9 @@ export default function App() {
           }}
           onApplyAiStyle={handleApplyAiStyle}
           hasSelectedVisualClip={Boolean(selectedClip && selectedClip.kind !== "audio")}
+          narrationState={narrationState}
+          captionCount={captionCount}
+          onGenerateProjectNarration={handleGenerateProjectNarration}
         />
 
         {/* Center Stage: Live Interactive Canvas & Playback Controls */}
@@ -1168,8 +1390,28 @@ export default function App() {
 
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
+      {/* Live Narration Synthesis Progress Banner */}
+      {narrationState.active && (
+        <div className="fixed bottom-6 left-6 z-50 w-80 p-3 rounded-lg bg-[#131720] border border-[#F97316]/60 shadow-2xl space-y-2">
+          <div className="flex items-center justify-between text-xs font-semibold text-white">
+            <span>ساخت نریشن آقای جوان و سینک کلمه‌به‌کلمه</span>
+            <span className="font-mono-tabular text-[#F97316]">
+              {narrationState.current} / {narrationState.total}
+            </span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-[#1B212E] overflow-hidden">
+            <div
+              className="h-full bg-[#F97316] transition-all duration-300"
+              style={{
+                width: `${Math.round((narrationState.current / Math.max(1, narrationState.total)) * 100)}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Crisp Transient Toast */}
-      {toastMsg && (
+      {toastMsg && !narrationState.active && (
         <div className="fixed bottom-6 left-6 z-50 px-4 py-2.5 rounded-lg bg-[#1B212E] border border-[#F97316]/60 text-xs font-medium text-white shadow-xl pointer-events-none">
           {toastMsg}
         </div>
