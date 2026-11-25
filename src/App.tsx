@@ -4,7 +4,11 @@ import { InspectorPanel } from "./components/InspectorPanel";
 import { LibrarySidebar, type NarrationState, type SidebarTab } from "./components/LibrarySidebar";
 import { PreviewStage } from "./components/PreviewStage";
 import { ProjectsModal, ShortcutsModal } from "./components/StudioModals";
-import { TimelinePanel } from "./components/TimelinePanel";
+import {
+  TimelinePanel,
+  type TimelineQuickAddItem,
+  type TimelineToolMode,
+} from "./components/TimelinePanel";
 import { TopBar } from "./components/TopBar";
 import {
   ASPECT_RATIO_DIMENSIONS,
@@ -50,6 +54,7 @@ import type {
   SynthTrackId,
   TextStyleConfig,
   TimelineMarker,
+  Track,
   TransitionType,
   WordTiming,
 } from "./types/studio";
@@ -59,6 +64,71 @@ const DEFAULT_NARRATOR_STYLE =
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function splitClipAtTime(clip: Clip, cutTime: number): [Clip, Clip] | null {
+  if (cutTime <= clip.start + 0.12 || cutTime >= clip.start + clip.duration - 0.12) {
+    return null;
+  }
+  const leftDur = Number((cutTime - clip.start).toFixed(3));
+  const rightDur = Number((clip.duration - leftDur).toFixed(3));
+  const speed = clip.speed || 1;
+
+  let leftTextStyle = clip.textStyle ? { ...clip.textStyle } : undefined;
+  let rightTextStyle = clip.textStyle ? { ...clip.textStyle } : undefined;
+
+  if (clip.kind === "caption" && clip.textStyle?.wordTimings?.length) {
+    const leftWords = clip.textStyle.wordTimings
+      .filter((w) => w.start < leftDur)
+      .map((w) => ({ ...w, end: Number(Math.min(leftDur, w.end).toFixed(3)) }));
+    const rightWords = clip.textStyle.wordTimings
+      .filter((w) => w.end > leftDur)
+      .map((w) => ({
+        ...w,
+        start: Number(Math.max(0, w.start - leftDur).toFixed(3)),
+        end: Number(Math.max(0.05, w.end - leftDur).toFixed(3)),
+      }));
+
+    if (leftWords.length > 0 && rightWords.length > 0) {
+      leftTextStyle = {
+        ...clip.textStyle,
+        text: leftWords.map((w) => w.word).join(" "),
+        wordTimings: leftWords,
+      };
+      rightTextStyle = {
+        ...clip.textStyle,
+        text: rightWords.map((w) => w.word).join(" "),
+        wordTimings: rightWords,
+      };
+    } else {
+      leftTextStyle = { ...clip.textStyle, wordTimings: leftWords };
+      rightTextStyle = { ...clip.textStyle, wordTimings: rightWords };
+    }
+  }
+
+  const baseName = clip.name.replace(/\s*\(بخش\s*\d+\)$/, "");
+  const leftClip: Clip = {
+    ...clip,
+    duration: leftDur,
+    ...(leftTextStyle ? { textStyle: leftTextStyle } : {}),
+  };
+
+  const rightClip: Clip = {
+    ...clip,
+    id: uid("clip"),
+    name: `${baseName} (بخش ۲)`,
+    start: Number(cutTime.toFixed(3)),
+    duration: rightDur,
+    trimStart: Number(((clip.trimStart || 0) + leftDur * speed).toFixed(3)),
+    transitionIn: "none",
+    enterAnimation: "none",
+    transform: { ...clip.transform },
+    color: { ...clip.color },
+    audio: clip.audio ? { ...clip.audio } : undefined,
+    ...(rightTextStyle ? { textStyle: rightTextStyle } : {}),
+  };
+
+  return [leftClip, rightClip];
 }
 
 export default function App() {
@@ -79,6 +149,7 @@ export default function App() {
   const [showSafeZone, setShowSafeZone] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
+  const [timelineTool, setTimelineTool] = useState<TimelineToolMode>("select");
 
   const [exportOpen, setExportOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
@@ -277,35 +348,144 @@ export default function App() {
     [mutateProject]
   );
 
-  const handleSplitAtPlayhead = useCallback(() => {
-    if (!selectedClipId) return;
-    const clip = project.clips.find((c) => c.id === selectedClipId);
-    if (!clip) return;
-    if (currentTime <= clip.start + 0.15 || currentTime >= clip.start + clip.duration - 0.15) {
-      notify("هد پخش باید درون بازه کلیپ انتخاب‌شده باشد.");
+  const handleSplitClipAtTime = useCallback(
+    (clipId: string, cutTime: number) => {
+      const clip = project.clips.find((c) => c.id === clipId);
+      if (!clip) return;
+      const track = project.tracks.find((t) => t.id === clip.trackId);
+      if (track?.locked) {
+        notify(`لایه «${track.name}» قفل است؛ ابتدا قفل را باز کنید.`);
+        return;
+      }
+      const pair = splitClipAtTime(clip, cutTime);
+      if (!pair) {
+        notify("نقطه برش باید درون بازه کلیپ باشد.");
+        return;
+      }
+      const [leftClip, rightClip] = pair;
+      mutateProject((p) => ({
+        ...p,
+        clips: p.clips.flatMap((c) => (c.id === clip.id ? [leftClip, rightClip] : [c])),
+      }));
+      setSelectedClipId(rightClip.id);
+      notify("کلیپ برش خورد.");
+    },
+    [project.clips, project.tracks, mutateProject, notify]
+  );
+
+  const handleSplitAllAtPlayhead = useCallback(() => {
+    let splitCount = 0;
+    const lockedIds = new Set(project.tracks.filter((t) => t.locked).map((t) => t.id));
+    const nextClips = project.clips.flatMap((clip) => {
+      if (lockedIds.has(clip.trackId)) return [clip];
+      const pair = splitClipAtTime(clip, currentTime);
+      if (!pair) return [clip];
+      splitCount += 1;
+      return pair;
+    });
+    if (splitCount === 0) {
+      notify("کلیپ بازی در محل هد پخش برای برش پیدا نشد.");
       return;
     }
-    const leftDur = Number((currentTime - clip.start).toFixed(2));
-    const rightDur = Number((clip.duration - leftDur).toFixed(2));
-    const rightClip: Clip = {
-      ...clip,
-      id: uid("clip"),
-      name: `${clip.name} (بخش ۲)`,
-      start: Number(currentTime.toFixed(2)),
-      duration: rightDur,
-      trimStart: Number(((clip.trimStart || 0) + leftDur * (clip.speed || 1)).toFixed(2)),
-      transitionIn: "none",
-    };
-    mutateProject((p) => ({
-      ...p,
-      clips: [
-        ...p.clips.map((c) => (c.id === clip.id ? { ...c, duration: leftDur } : c)),
-        rightClip,
-      ],
-    }));
-    setSelectedClipId(rightClip.id);
-    notify("کلیپ در محل هد پخش برش خورد.");
-  }, [selectedClipId, project.clips, currentTime, mutateProject, notify]);
+    mutateProject((p) => ({ ...p, clips: nextClips }));
+    notify(`${splitCount} کلیپ همزمان در محل هد پخش برش خورد.`);
+  }, [project.clips, project.tracks, currentTime, mutateProject, notify]);
+
+  const handleSplitAtPlayhead = useCallback(() => {
+    if (selectedClipId) {
+      handleSplitClipAtTime(selectedClipId, currentTime);
+      return;
+    }
+    handleSplitAllAtPlayhead();
+  }, [selectedClipId, currentTime, handleSplitClipAtTime, handleSplitAllAtPlayhead]);
+
+  const handleTrimSelectedToPlayhead = useCallback(
+    (side: "start" | "end") => {
+      if (!selectedClipId) return;
+      const clip = project.clips.find((c) => c.id === selectedClipId);
+      if (!clip) return;
+      const track = project.tracks.find((t) => t.id === clip.trackId);
+      if (track?.locked) {
+        notify(`لایه «${track.name}» قفل است.`);
+        return;
+      }
+      if (currentTime <= clip.start + 0.12 || currentTime >= clip.start + clip.duration - 0.12) {
+        notify("هد پخش باید درون بازه کلیپ انتخاب‌شده باشد.");
+        return;
+      }
+
+      if (side === "start") {
+        const delta = Number((currentTime - clip.start).toFixed(3));
+        const nextDur = Number((clip.duration - delta).toFixed(3));
+        const nextTrim = Number(((clip.trimStart || 0) + delta * (clip.speed || 1)).toFixed(3));
+        const nextWords = clip.textStyle?.wordTimings
+          ? clip.textStyle.wordTimings
+              .filter((w) => w.end > delta)
+              .map((w) => ({
+                ...w,
+                start: Number(Math.max(0, w.start - delta).toFixed(3)),
+                end: Number(Math.max(0.05, w.end - delta).toFixed(3)),
+              }))
+          : undefined;
+        mutateProject((p) => ({
+          ...p,
+          clips: p.clips.map((c) =>
+            c.id === clip.id
+              ? {
+                  ...c,
+                  start: Number(currentTime.toFixed(3)),
+                  duration: nextDur,
+                  trimStart: nextTrim,
+                  textStyle:
+                    c.textStyle && nextWords
+                      ? {
+                          ...c.textStyle,
+                          text:
+                            nextWords.length > 0
+                              ? nextWords.map((w) => w.word).join(" ")
+                              : c.textStyle.text,
+                          wordTimings: nextWords,
+                        }
+                      : c.textStyle,
+                }
+              : c
+          ),
+        }));
+        notify("ابتدای کلیپ تا هد پخش بریده شد.");
+      } else {
+        const nextDur = Number((currentTime - clip.start).toFixed(3));
+        const nextWords = clip.textStyle?.wordTimings
+          ? clip.textStyle.wordTimings
+              .filter((w) => w.start < nextDur)
+              .map((w) => ({ ...w, end: Number(Math.min(nextDur, w.end).toFixed(3)) }))
+          : undefined;
+        mutateProject((p) => ({
+          ...p,
+          clips: p.clips.map((c) =>
+            c.id === clip.id
+              ? {
+                  ...c,
+                  duration: nextDur,
+                  textStyle:
+                    c.textStyle && nextWords
+                      ? {
+                          ...c.textStyle,
+                          text:
+                            nextWords.length > 0
+                              ? nextWords.map((w) => w.word).join(" ")
+                              : c.textStyle.text,
+                          wordTimings: nextWords,
+                        }
+                      : c.textStyle,
+                }
+              : c
+          ),
+        }));
+        notify("انتهای کلیپ از هد پخش بریده شد.");
+      }
+    },
+    [selectedClipId, project.clips, project.tracks, currentTime, mutateProject, notify]
+  );
 
   const handleDuplicateSelected = useCallback(() => {
     if (!selectedClipId) return;
@@ -318,7 +498,12 @@ export default function App() {
       start: Number((clip.start + clip.duration + 0.1).toFixed(2)),
       transform: { ...clip.transform },
       color: { ...clip.color },
-      textStyle: clip.textStyle ? { ...clip.textStyle } : undefined,
+      textStyle: clip.textStyle
+        ? {
+            ...clip.textStyle,
+            wordTimings: clip.textStyle.wordTimings?.map((w) => ({ ...w })),
+          }
+        : undefined,
       audio: clip.audio ? { ...clip.audio } : undefined,
     };
     mutateProject((p) => ({ ...p, clips: [...p.clips, copy] }));
@@ -326,15 +511,33 @@ export default function App() {
     notify("کلیپ تکثیر شد.");
   }, [selectedClipId, project.clips, mutateProject, notify]);
 
-  const handleDeleteSelected = useCallback(() => {
-    if (!selectedClipId) return;
-    mutateProject((p) => ({
-      ...p,
-      clips: p.clips.filter((c) => c.id !== selectedClipId),
-    }));
-    setSelectedClipId(null);
-    notify("کلیپ حذف شد.");
-  }, [selectedClipId, mutateProject, notify]);
+  const handleDeleteSelected = useCallback(
+    (ripple = false) => {
+      if (!selectedClipId) return;
+      const target = project.clips.find((c) => c.id === selectedClipId);
+      if (!target) return;
+      const track = project.tracks.find((t) => t.id === target.trackId);
+      if (track?.locked) {
+        notify(`لایه «${track.name}» قفل است؛ ابتدا قفل را باز کنید.`);
+        return;
+      }
+      const removedEnd = target.start + target.duration;
+      mutateProject((p) => ({
+        ...p,
+        clips: p.clips
+          .filter((c) => c.id !== selectedClipId)
+          .map((c) => {
+            if (ripple && c.trackId === target.trackId && c.start >= removedEnd - 0.05) {
+              return { ...c, start: Math.max(0, Number((c.start - target.duration).toFixed(3))) };
+            }
+            return c;
+          }),
+      }));
+      setSelectedClipId(null);
+      notify(ripple ? "کلیپ حذف و فاصله‌های بعدی جمع شد." : "کلیپ حذف شد.");
+    },
+    [selectedClipId, project.clips, project.tracks, mutateProject, notify]
+  );
 
   const handleAddMarker = useCallback(() => {
     const marker = {
@@ -370,6 +573,69 @@ export default function App() {
       });
     },
     [mutateProject]
+  );
+
+  const handleAddTrack = useCallback(
+    (kind: Track["kind"]) => {
+      const sameKindCount = project.tracks.filter((t) => t.kind === kind).length + 1;
+      const baseTitle =
+        kind === "video"
+          ? "ویدیو / تصویر"
+          : kind === "graphic"
+            ? "گرافیک / استیکر"
+            : kind === "text"
+              ? "متن / زیرنویس"
+              : "صدا / افکت";
+      const newTrack: Track = {
+        id: uid("trk"),
+        name: `${baseTitle} ${sameKindCount}`,
+        kind,
+        visible: true,
+        locked: false,
+        muted: false,
+        solo: false,
+      };
+      mutateProject((p) => {
+        if (kind === "audio") {
+          return { ...p, tracks: [...p.tracks, newTrack] };
+        }
+        const firstAudioIdx = p.tracks.findIndex((t) => t.kind === "audio");
+        if (firstAudioIdx >= 0) {
+          return {
+            ...p,
+            tracks: [
+              ...p.tracks.slice(0, firstAudioIdx),
+              newTrack,
+              ...p.tracks.slice(firstAudioIdx),
+            ],
+          };
+        }
+        return { ...p, tracks: [...p.tracks, newTrack] };
+      });
+      notify(`لایه «${newTrack.name}» اضافه شد.`);
+    },
+    [project.tracks, mutateProject, notify]
+  );
+
+  const handleDeleteTrack = useCallback(
+    (trackId: string) => {
+      if (project.tracks.length <= 1) {
+        notify("حداقل یک لایه باید در تایم‌لاین باقی بماند.");
+        return;
+      }
+      const target = project.tracks.find((t) => t.id === trackId);
+      if (!target) return;
+      mutateProject((p) => ({
+        ...p,
+        tracks: p.tracks.filter((t) => t.id !== trackId),
+        clips: p.clips.filter((c) => c.trackId !== trackId),
+      }));
+      if (selectedClip && selectedClip.trackId === trackId) {
+        setSelectedClipId(null);
+      }
+      notify(`لایه «${target.name}» حذف شد.`);
+    },
+    [project.tracks, selectedClip, mutateProject, notify]
   );
 
   // Full-resolution 1080p PNG Cover Snapshot
@@ -421,16 +687,26 @@ export default function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
         e.preventDefault();
         handleDuplicateSelected();
+      } else if (e.key.toLowerCase() === "v" && !e.ctrlKey && !e.metaKey) {
+        setTimelineTool("select");
+      } else if (e.key.toLowerCase() === "c" && !e.ctrlKey && !e.metaKey) {
+        setTimelineTool("razor");
       } else if (e.key.toLowerCase() === "s" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleSplitAtPlayhead();
+      } else if (e.key === "[") {
+        e.preventDefault();
+        handleTrimSelectedToPlayhead("start");
+      } else if (e.key === "]") {
+        e.preventDefault();
+        handleTrimSelectedToPlayhead("end");
       } else if (e.key.toLowerCase() === "m") {
         e.preventDefault();
         handleAddMarker();
       } else if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedClipId) {
           e.preventDefault();
-          handleDeleteSelected();
+          handleDeleteSelected(e.shiftKey);
         }
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
@@ -447,15 +723,16 @@ export default function App() {
     handleRedo,
     handleDuplicateSelected,
     handleSplitAtPlayhead,
+    handleTrimSelectedToPlayhead,
     handleAddMarker,
     handleDeleteSelected,
     handleStepFrame,
     selectedClipId,
   ]);
 
-  // Add Media Upload (Video, Image, Audio)
+  // Add Media Upload (Video, Image, Audio) — optionally targeted to a specific timeline track
   const handleUploadMediaFiles = useCallback(
-    async (files: FileList) => {
+    async (files: FileList, preferredTrackId?: string | null) => {
       for (const file of Array.from(files)) {
         const url = URL.createObjectURL(file);
         const cleanName = file.name.replace(/\.[^/.]+$/, "");
@@ -463,7 +740,10 @@ export default function App() {
         if (file.type.startsWith("image/")) {
           const asset: MediaAsset = { id: uid("img"), name: cleanName, kind: "image", src: url };
           setMediaAssets((prev) => [asset, ...prev]);
-          const videoTrack = project.tracks.find((t) => t.kind === "video") ?? project.tracks[0];
+          const videoTrack =
+            (preferredTrackId ? project.tracks.find((t) => t.id === preferredTrackId) : undefined) ??
+            project.tracks.find((t) => t.kind === "video") ??
+            project.tracks[0];
           const newClip = makeClip({
             id: uid("clip"),
             trackId: videoTrack.id,
@@ -494,7 +774,10 @@ export default function App() {
             duration: dur,
           };
           setMediaAssets((prev) => [asset, ...prev]);
-          const videoTrack = project.tracks.find((t) => t.kind === "video") ?? project.tracks[0];
+          const videoTrack =
+            (preferredTrackId ? project.tracks.find((t) => t.id === preferredTrackId) : undefined) ??
+            project.tracks.find((t) => t.kind === "video") ??
+            project.tracks[0];
           const newClip = makeClip({
             id: uid("clip"),
             trackId: videoTrack.id,
@@ -514,8 +797,8 @@ export default function App() {
           let waveform: number[] | undefined;
           try {
             const buf = await decodeAudioUrl(url);
-            dur = Math.max(1, Math.min(60, buf.duration));
-            waveform = extractWaveformPeaks(buf, 48);
+            dur = Math.max(1, Math.min(120, buf.duration));
+            waveform = extractWaveformPeaks(buf, 64);
           } catch {
             // fallback duration
           }
@@ -529,7 +812,9 @@ export default function App() {
           };
           setMediaAssets((prev) => [asset, ...prev]);
           const audioTrack =
-            project.tracks.find((t) => t.kind === "audio") ?? project.tracks[project.tracks.length - 1];
+            (preferredTrackId ? project.tracks.find((t) => t.id === preferredTrackId) : undefined) ??
+            project.tracks.find((t) => t.kind === "audio") ??
+            project.tracks[project.tracks.length - 1];
           const newClip = makeClip({
             id: uid("clip"),
             trackId: audioTrack.id,
@@ -539,9 +824,9 @@ export default function App() {
             start: Number(currentTime.toFixed(2)),
             duration: Number(dur.toFixed(2)),
             audio: {
-              volume: 0.9,
-              fadeIn: 0.3,
-              fadeOut: 0.8,
+              volume: 1.0,
+              fadeIn: 0.1,
+              fadeOut: 0.4,
               muted: false,
               eqPreset: "normal",
               waveform,
@@ -551,6 +836,165 @@ export default function App() {
           setSelectedClipId(newClip.id);
           notify(`فایل صوتی «${cleanName}» اضافه شد.`);
         }
+      }
+    },
+    [project.tracks, currentTime, mutateProject, notify]
+  );
+
+  const handleQuickAddToTrack = useCallback(
+    (trackId: string | null, item: TimelineQuickAddItem) => {
+      const findTrack = (kind: Track["kind"]): Track =>
+        (trackId ? project.tracks.find((t) => t.id === trackId) : undefined) ??
+        project.tracks.find((t) => t.kind === kind) ??
+        project.tracks[0];
+
+      const startAt = Number(currentTime.toFixed(2));
+
+      if (item.type === "asset") {
+        const { asset } = item;
+        const targetTrack = findTrack(asset.kind === "audio" ? "audio" : "video");
+        if (targetTrack.locked) {
+          notify(`لایه «${targetTrack.name}» قفل است.`);
+          return;
+        }
+        const clip = makeClip({
+          id: uid("clip"),
+          trackId: targetTrack.id,
+          kind: asset.kind === "audio" ? "audio" : asset.kind === "video" ? "video" : "image",
+          name: asset.name,
+          src: asset.src,
+          start: startAt,
+          duration: asset.duration ? Number(asset.duration.toFixed(2)) : 4,
+          kenBurns: asset.kind === "image" ? "zoom-in" : "none",
+          transitionIn: asset.kind === "audio" ? "none" : "dissolve",
+          audio:
+            asset.kind === "audio"
+              ? {
+                  volume: asset.id.includes("voice") ? 1.25 : 0.9,
+                  fadeIn: 0.05,
+                  fadeOut: 0.2,
+                  muted: false,
+                  eqPreset: asset.id.includes("voice") ? "voice" : "normal",
+                  waveform: asset.waveform,
+                }
+              : undefined,
+        });
+        mutateProject((p) => ({ ...p, clips: [...p.clips, clip] }));
+        setSelectedClipId(clip.id);
+        notify(`«${asset.name}» در زمان ${startAt}s اضافه شد.`);
+        return;
+      }
+
+      if (item.type === "text-headline" || item.type === "text-caption") {
+        const targetTrack = findTrack("text");
+        if (targetTrack.locked) {
+          notify(`لایه «${targetTrack.name}» قفل است.`);
+          return;
+        }
+        const isCaption = item.type === "text-caption";
+        const clip = makeClip({
+          id: uid("txt"),
+          trackId: targetTrack.id,
+          kind: isCaption ? "caption" : "text",
+          name: isCaption ? "زیرنویس جدید" : "تیتر جدید",
+          start: startAt,
+          duration: 3.5,
+          transform: { ...DEFAULT_TRANSFORM, x: 0, y: isCaption ? 0.22 : -0.18 },
+          enterAnimation: isCaption ? "fade" : "pop",
+          textStyle: {
+            ...DEFAULT_TEXT_STYLE,
+            fontFamily: isCaption ? "Vazirmatn" : "Lalezar",
+            fontSize: isCaption ? 48 : 74,
+            fontWeight: 900,
+            bgColor: isCaption ? "#0B0D11" : "#F97316",
+            bgOpacity: isCaption ? 0.72 : 0.9,
+            highlightColor: "#F97316",
+            text: isCaption ? "متن زیرنویس پویای جدید" : "تیتر جذاب جدید",
+          },
+        });
+        mutateProject((p) => ({ ...p, clips: [...p.clips, clip] }));
+        setSelectedClipId(clip.id);
+        notify(isCaption ? "زیرنویس به تایم‌لاین اضافه شد." : "تیتر جدید به تایم‌لاین اضافه شد.");
+        return;
+      }
+
+      if (item.type === "sticker") {
+        const targetTrack = findTrack("graphic");
+        if (targetTrack.locked) {
+          notify(`لایه «${targetTrack.name}» قفل است.`);
+          return;
+        }
+        const clip = makeClip({
+          id: uid("stk"),
+          trackId: targetTrack.id,
+          kind: "sticker",
+          name: item.label,
+          stickerId: item.stickerId,
+          stickerLabel: item.label,
+          stickerAccent: item.accent,
+          start: startAt,
+          duration: 3.5,
+          transform: { ...DEFAULT_TRANSFORM, x: 0, y: 0.26 },
+          enterAnimation: "pop",
+          loopAnimation: "pulse",
+        });
+        mutateProject((p) => ({ ...p, clips: [...p.clips, clip] }));
+        setSelectedClipId(clip.id);
+        notify(`استیکر «${item.label}» اضافه شد.`);
+        return;
+      }
+
+      if (item.type === "shape") {
+        const targetTrack = findTrack("graphic");
+        if (targetTrack.locked) {
+          notify(`لایه «${targetTrack.name}» قفل است.`);
+          return;
+        }
+        const clip = makeClip({
+          id: uid("shp"),
+          trackId: targetTrack.id,
+          kind: "shape",
+          name: item.shapeKind === "gradient-scrim" ? "گرادیان تیره خوانایی" : "شکل گرافیکی",
+          shapeKind: item.shapeKind,
+          shapeFill: item.shapeKind === "gradient-scrim" ? "rgba(0,0,0,0)" : "#F97316",
+          shapeFill2: "rgba(5,7,11,0.85)",
+          start: startAt,
+          duration: 4,
+          transform: { ...DEFAULT_TRANSFORM, x: 0, y: item.shapeKind === "gradient-scrim" ? 0.25 : 0, opacity: 0.85 },
+          enterAnimation: "fade",
+        });
+        mutateProject((p) => ({ ...p, clips: [...p.clips, clip] }));
+        setSelectedClipId(clip.id);
+        notify("لایه گرافیکی اضافه شد.");
+        return;
+      }
+
+      if (item.type === "synth") {
+        const targetTrack = findTrack("audio");
+        if (targetTrack.locked) {
+          notify(`لایه «${targetTrack.name}» قفل است.`);
+          return;
+        }
+        const clip = makeClip({
+          id: uid("syn"),
+          trackId: targetTrack.id,
+          kind: "audio",
+          name: item.name,
+          start: startAt,
+          duration: item.duration,
+          audio: {
+            volume: 0.36,
+            fadeIn: 0.25,
+            fadeOut: 1.0,
+            muted: false,
+            eqPreset: "normal",
+            synthId: item.synthId,
+            waveform: getSynthWaveform(item.synthId, item.duration),
+          },
+        });
+        mutateProject((p) => ({ ...p, clips: [...p.clips, clip] }));
+        setSelectedClipId(clip.id);
+        notify(`موزیک «${item.name}» اضافه شد.`);
       }
     },
     [project.tracks, currentTime, mutateProject, notify]
@@ -1336,14 +1780,24 @@ export default function App() {
       {/* Bottom Multi-Track NLE Timeline */}
       <TimelinePanel
         project={project}
+        mediaAssets={mediaAssets}
         currentTime={currentTime}
         totalDuration={totalDuration}
         selectedClipId={selectedClipId}
         snapEnabled={snapEnabled}
+        toolMode={timelineTool}
+        canUndo={historyPast.length > 0}
+        canRedo={historyFuture.length > 0}
+        onChangeToolMode={setTimelineTool}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
         onSeek={handleSeek}
         onSelectClip={setSelectedClipId}
         onUpdateClipTiming={handleUpdateClipTiming}
         onSplitAtPlayhead={handleSplitAtPlayhead}
+        onSplitAllAtPlayhead={handleSplitAllAtPlayhead}
+        onSplitClipAtTime={handleSplitClipAtTime}
+        onTrimSelectedToPlayhead={handleTrimSelectedToPlayhead}
         onDuplicateSelected={handleDuplicateSelected}
         onDeleteSelected={handleDeleteSelected}
         onToggleSnap={() => setSnapEnabled((s) => !s)}
@@ -1353,6 +1807,12 @@ export default function App() {
         }
         onToggleTrackFlag={handleToggleTrackFlag}
         onMoveTrackOrder={handleMoveTrackOrder}
+        onAddTrack={handleAddTrack}
+        onDeleteTrack={handleDeleteTrack}
+        onQuickAddToTrack={handleQuickAddToTrack}
+        onUploadMediaToTrack={(files, trackId) => {
+          void handleUploadMediaFiles(files, trackId);
+        }}
       />
 
       {/* Modals */}

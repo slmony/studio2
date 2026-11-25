@@ -608,6 +608,63 @@ ${scriptText.trim()}
     }
   });
 
+  // 6. Acoustic + Gemini Word-by-Word Timestamp Alignment for Uploaded Audio
+  app.post("/api/ai/align-audio", async (req, res) => {
+    try {
+      const { audioPath, words } = req.body ?? {};
+      if (!audioPath || typeof audioPath !== "string") {
+        return res.status(400).json({ error: "مسیر فایل صوتی الزامی است." });
+      }
+      const cleanRel = audioPath.replace(/^\/+/, "");
+      const resolved = path.resolve(__dirname, "public", cleanRel);
+      if (!resolved.startsWith(path.resolve(__dirname, "public")) || !fs.existsSync(resolved)) {
+        return res.status(404).json({ error: "فایل صوتی یافت نشد." });
+      }
+
+      const wavBuf = fs.readFileSync(resolved);
+      const b64 = wavBuf.toString("base64");
+      const ai = getGeminiClient("v1beta");
+
+      const wordPrompt = Array.isArray(words) && words.length > 0
+        ? `Listen carefully to the attached Persian narration audio. Return exact start and end timestamps (in seconds, floating point with 2 decimals, monotonically increasing) for EVERY SINGLE word in this exact ordered list:\n${JSON.stringify(words)}`
+        : "Transcribe every spoken word in the attached Persian narration audio with exact start and end timestamps (in seconds).";
+
+      const response = await ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inlineData: { mimeType: "audio/wav", data: b64 } },
+              { text: wordPrompt },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                word: { type: Type.STRING },
+                start: { type: Type.NUMBER },
+                end: { type: Type.NUMBER },
+              },
+              required: ["word", "start", "end"],
+            },
+          },
+        },
+      });
+
+      const rawTimings = JSON.parse((response.text ?? "[]").trim()) as WordTiming[];
+      return res.json({ wordTimings: rawTimings });
+    } catch (err) {
+      const formatted = formatApiError(err);
+      return res.status(formatted.status).json({ error: formatted.message });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

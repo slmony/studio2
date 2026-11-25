@@ -1,7 +1,7 @@
 import type { ProjectState } from "../types/studio";
 
 const STORAGE_KEY = "kadr_studio_projects_v1";
-const DRAFT_KEY = "kadr_studio_autosave_v3";
+const DRAFT_KEY = "kadr_studio_autosave_v4";
 
 export function loadSavedProjects(): ProjectState[] {
   try {

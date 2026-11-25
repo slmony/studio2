@@ -126,39 +126,90 @@ export function generateSynthBuffer(
       right[i] = Math.tanh(droneR + pulse);
     }
   } else if (synthId === "reels-pulse") {
-    const bpm = 120;
+    // High-energy 126 BPM Commercial Groove — punchy on-the-beat kick, crisp clap, 16th hi-hats, driving bass & uplifting chords
+    const bpm = 126;
     const beatDur = 60 / bpm;
-    const arp = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63, 293.66, 392.0];
+    // Am -> F -> C -> G progression (bars of 4 beats)
+    const bassRoots = [110.0, 87.31, 130.81, 98.0];
+    const chordPools = [
+      [220.0, 261.63, 329.63, 440.0],
+      [174.61, 220.0, 261.63, 349.23],
+      [261.63, 329.63, 392.0, 523.25],
+      [196.0, 246.94, 293.66, 392.0],
+    ];
     for (let i = 0; i < length; i++) {
       const t = i / sampleRate;
       const beat = t / beatDur;
+      const bar = Math.floor(beat / 4) % 4;
+      const beatInBar = beat % 4;
       const beatFrac = beat % 1;
       const kt = beatFrac * beatDur;
-      // Four-on-the-floor punchy kick
-      const kick = Math.sin(2 * Math.PI * (145 * Math.exp(-kt * 28) + 48) * kt) * Math.exp(-kt * 11) * 0.48;
-      // Clap on beats 1 and 3
+
+      // 1. Tight punchy four-on-the-floor kick right on every beat
+      const kickClick = Math.exp(-kt * 160) * 0.24;
+      const kickBody = Math.sin(2 * Math.PI * (165 * Math.exp(-kt * 32) + 48) * kt) * Math.exp(-kt * 13);
+      const kick = (kickBody * 0.54 + kickClick) * (beatFrac < 0.45 ? 1 : 0);
+
+      // 2. Crisp snappy clap + snare on beats 1 and 3 (every 2 beats on the backbeat)
       const b2 = beat % 2;
       let clap = 0;
-      if (b2 >= 1 && b2 < 1.2) {
+      if (b2 >= 1 && b2 < 1.28) {
         const ct = (b2 - 1) * beatDur;
-        const n = Math.sin(i * 45.164) * 43758.5453;
-        clap = ((n - Math.floor(n)) * 2 - 1) * Math.exp(-ct * 24) * 0.22;
+        const n1 = Math.sin(i * 45.164) * 43758.5453;
+        const n2 = Math.sin((i + 17) * 71.933) * 29431.123;
+        const noise = ((n1 - Math.floor(n1)) + (n2 - Math.floor(n2))) - 1;
+        const body = Math.sin(2 * Math.PI * 195 * ct) * Math.exp(-ct * 35) * 0.16;
+        clap = noise * Math.exp(-ct * 26) * 0.28 + body;
       }
-      // Bright plucky synth arpeggio (16th notes)
-      const step = Math.floor(beat * 2);
-      const stepFrac = (beat * 2) % 1;
-      const note = arp[step % arp.length];
-      const pluckEnv = Math.exp(-stepFrac * 6.5);
-      const pluck =
-        (Math.sin(2 * Math.PI * note * t) + 0.35 * Math.sin(2 * Math.PI * note * 2 * t)) *
-        0.16 *
-        pluckEnv;
-      // Sidechained bass
-      const sidechain = Math.min(1, beatFrac * 3.5);
-      const bass = Math.sin(2 * Math.PI * 65.41 * t) * 0.22 * sidechain;
 
-      left[i] = Math.tanh(kick + clap + pluck * 1.1 + bass);
-      right[i] = Math.tanh(kick + clap + pluck * 0.85 + bass);
+      // 3. Driving 16th-note hi-hat + offbeat open hat (& of each beat)
+      const step16 = Math.floor(beat * 4);
+      const frac16 = (beat * 4) % 1;
+      const nH = Math.sin(i * 93.713) * 43758.5453;
+      const hatNoise = (nH - Math.floor(nH)) * 2 - 1;
+      const isOffBeat = step16 % 4 === 2;
+      const hatDecay = isOffBeat ? 22 : 68;
+      const hatAmp = isOffBeat ? 0.14 : step16 % 2 === 0 ? 0.08 : 0.045;
+      const hat = hatNoise * Math.exp(-(frac16 * beatDur * 0.25) * hatDecay * 4) * hatAmp;
+
+      // 4. Driving offbeat octave bass locked to chord root + tight sidechain pump
+      const bassRoot = bassRoots[bar];
+      const bassOct = step16 % 4 >= 2 ? bassRoot : bassRoot * 0.5;
+      const sidechain = Math.min(1, beatFrac * 4.2);
+      const bass =
+        (Math.sin(2 * Math.PI * bassOct * t) * 0.26 +
+          Math.sin(2 * Math.PI * bassOct * 2 * t) * 0.08) *
+        sidechain;
+
+      // 5. Rhythmic staccato commercial synth stab on synced dance-pop grid (0, 0.75, 1.5, 2.5, 3.25)
+      const chord = chordPools[bar];
+      const step8 = Math.floor(beat * 2) % 8;
+      const frac8 = (beat * 2) % 1;
+      const stabPattern = [1, 0, 1, 1, 0, 1, 1, 0];
+      const stabActive = stabPattern[step8];
+      const stabEnv = stabActive ? Math.exp(-frac8 * 7.5) : Math.exp(-frac8 * 14) * 0.25;
+      const note = chord[(step8 + bar) % chord.length];
+      const synthL =
+        (Math.sin(2 * Math.PI * note * t) +
+          0.32 * Math.sin(2 * Math.PI * note * 2 * t) +
+          0.18 * Math.sin(2 * Math.PI * (chord[1]) * t)) *
+        0.11 *
+        stabEnv;
+      const synthR =
+        (Math.sin(2 * Math.PI * (note * 1.003) * t) +
+          0.32 * Math.sin(2 * Math.PI * note * 2 * t) +
+          0.18 * Math.sin(2 * Math.PI * (chord[2]) * t)) *
+        0.11 *
+        stabEnv;
+
+      // Crisp 16th snare fill on final 2 beats of every 4-bar phrase
+      let fill = 0;
+      if (Math.floor(beat / 4) % 4 === 3 && beatInBar >= 3.25) {
+        fill = hatNoise * Math.exp(-(frac16 * 12)) * 0.16;
+      }
+
+      left[i] = Math.tanh(kick + clap + hat + fill + bass + synthL * 1.12);
+      right[i] = Math.tanh(kick + clap - hat * 0.85 + fill + bass + synthR * 1.12);
     }
   } else if (synthId === "deep-bass") {
     const bpm = 108;
