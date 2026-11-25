@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+:root {
+  --studio-bg: #0b0d11;
+  --studio-surface: #131720;
+  --studio-elevated: #1b212e;
+  --studio-border: #252d3d;
+  --studio-border-strong: #334057;
+  --studio-primary: #f97316;
+  --studio-primary-hover: #fb923c;
+  --studio-text: #f1f5f9;
+  --studio-muted: #94a3b8;
+  --studio-dim: #64748b;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: var(--studio-bg);
+    color: var(--studio-text);
+    font-family: "Vazirmatn", system-ui, -apple-system, sans-serif;
+  }
+
+  button,
+  select,
+  input,
+  textarea {
+    font-family: inherit;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--studio-primary);
+    outline-offset: 1px;
+  }
+}
+
+.font-mono-tabular {
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Studio custom thin scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0b0d11;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #283142;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3d4b66;
+}
+
+/* Precision studio range sliders */
+input[type="range"].studio-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #252d3d;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"].studio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #f97316;
+  border: 2px solid #0b0d11;
+  cursor: pointer;
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+input[type="range"].studio-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.18);
+  background: #fb923c;
+}
+
+input[type="range"].studio-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #f97316;
+  border: 2px solid #0b0d11;
+  cursor: pointer;
+}

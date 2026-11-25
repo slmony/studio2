@@ -1,0 +1,6 @@
+{
+  "name": "کادر استودیو — استودیوی ویدیوسازی اینستاگرام",
+  "description": "استودیوی کامل تدوین، موشن‌گرافیک و ساخت ویدیوی ریلز و استوری اینستاگرام در وب با بیش از ۶۰ قابلیت حرفه‌ای، دستیار هوش مصنوعی و خروجی واقعی MP4.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
