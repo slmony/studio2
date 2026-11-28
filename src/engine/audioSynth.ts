@@ -25,7 +25,7 @@ export function generateSynthBuffer(
   durationSeconds: number,
   sampleRate = 48000
 ): AudioBuffer {
-  const dur = Math.max(0.3, Math.min(60, durationSeconds));
+  const dur = Math.max(0.3, Math.min(180, durationSeconds));
   const key = `${synthId}:${dur.toFixed(1)}:${sampleRate}`;
   const cached = synthBufferCache.get(key);
   if (cached) return cached;
@@ -126,10 +126,10 @@ export function generateSynthBuffer(
       right[i] = Math.tanh(droneR + pulse);
     }
   } else if (synthId === "reels-pulse") {
-    // High-energy 126 BPM Commercial Groove — punchy on-the-beat kick, crisp clap, 16th hi-hats, driving bass & uplifting chords
-    const bpm = 126;
+    // High-energy 130 BPM Commercial Groove — punchy on-beat transient kick, snappy clap/snare, crisp 16th hats, driving octave bass & energetic uplifting pluck/arp
+    const bpm = 130;
     const beatDur = 60 / bpm;
-    // Am -> F -> C -> G progression (bars of 4 beats)
+    // Am -> F -> C -> G uplifting commercial progression
     const bassRoots = [110.0, 87.31, 130.81, 98.0];
     const chordPools = [
       [220.0, 261.63, 329.63, 440.0],
@@ -145,71 +145,79 @@ export function generateSynthBuffer(
       const beatFrac = beat % 1;
       const kt = beatFrac * beatDur;
 
-      // 1. Tight punchy four-on-the-floor kick right on every beat
-      const kickClick = Math.exp(-kt * 160) * 0.24;
-      const kickBody = Math.sin(2 * Math.PI * (165 * Math.exp(-kt * 32) + 48) * kt) * Math.exp(-kt * 13);
-      const kick = (kickBody * 0.54 + kickClick) * (beatFrac < 0.45 ? 1 : 0);
+      // 1. Ultra-tight punchy four-on-the-floor kick locked right on every beat
+      const kickClick = Math.exp(-kt * 220) * 0.36;
+      const kickBody =
+        Math.sin(2 * Math.PI * (205 * Math.exp(-kt * 38) + 50) * kt) * Math.exp(-kt * 14);
+      const kick = (kickBody * 0.7 + kickClick) * (beatFrac < 0.44 ? 1 : 0);
 
-      // 2. Crisp snappy clap + snare on beats 1 and 3 (every 2 beats on the backbeat)
+      // 2. Crisp snappy clap + tight snare crack on beats 2 & 4
       const b2 = beat % 2;
       let clap = 0;
-      if (b2 >= 1 && b2 < 1.28) {
+      if (b2 >= 1 && b2 < 1.26) {
         const ct = (b2 - 1) * beatDur;
         const n1 = Math.sin(i * 45.164) * 43758.5453;
         const n2 = Math.sin((i + 17) * 71.933) * 29431.123;
-        const noise = ((n1 - Math.floor(n1)) + (n2 - Math.floor(n2))) - 1;
-        const body = Math.sin(2 * Math.PI * 195 * ct) * Math.exp(-ct * 35) * 0.16;
-        clap = noise * Math.exp(-ct * 26) * 0.28 + body;
+        const noise = n1 - Math.floor(n1) + (n2 - Math.floor(n2)) - 1;
+        const body = Math.sin(2 * Math.PI * 220 * ct) * Math.exp(-ct * 38) * 0.24;
+        clap = noise * Math.exp(-ct * 26) * 0.4 + body;
       }
 
-      // 3. Driving 16th-note hi-hat + offbeat open hat (& of each beat)
+      // 3. Driving 16th-note hi-hats + crisp offbeat open hat (& of each beat)
       const step16 = Math.floor(beat * 4);
       const frac16 = (beat * 4) % 1;
       const nH = Math.sin(i * 93.713) * 43758.5453;
       const hatNoise = (nH - Math.floor(nH)) * 2 - 1;
       const isOffBeat = step16 % 4 === 2;
-      const hatDecay = isOffBeat ? 22 : 68;
-      const hatAmp = isOffBeat ? 0.14 : step16 % 2 === 0 ? 0.08 : 0.045;
+      const hatDecay = isOffBeat ? 18 : 68;
+      const hatAmp = isOffBeat ? 0.19 : step16 % 2 === 0 ? 0.11 : 0.065;
       const hat = hatNoise * Math.exp(-(frac16 * beatDur * 0.25) * hatDecay * 4) * hatAmp;
 
-      // 4. Driving offbeat octave bass locked to chord root + tight sidechain pump
+      // 4. Tight sidechained driving octave bass locked to the kick groove
       const bassRoot = bassRoots[bar];
       const bassOct = step16 % 4 >= 2 ? bassRoot : bassRoot * 0.5;
-      const sidechain = Math.min(1, beatFrac * 4.2);
+      const sidechain = Math.min(1, beatFrac * 5.2);
       const bass =
-        (Math.sin(2 * Math.PI * bassOct * t) * 0.26 +
-          Math.sin(2 * Math.PI * bassOct * 2 * t) * 0.08) *
+        (Math.sin(2 * Math.PI * bassOct * t) * 0.34 +
+          Math.sin(2 * Math.PI * bassOct * 2 * t) * 0.13 +
+          Math.sin(2 * Math.PI * bassOct * 3 * t) * 0.045) *
         sidechain;
 
-      // 5. Rhythmic staccato commercial synth stab on synced dance-pop grid (0, 0.75, 1.5, 2.5, 3.25)
+      // 5. Energetic uplifting chord pluck & rhythmic 16th synth arp
       const chord = chordPools[bar];
       const step8 = Math.floor(beat * 2) % 8;
       const frac8 = (beat * 2) % 1;
-      const stabPattern = [1, 0, 1, 1, 0, 1, 1, 0];
+      const stabPattern = [1, 0, 1, 1, 0, 1, 1, 1];
       const stabActive = stabPattern[step8];
-      const stabEnv = stabActive ? Math.exp(-frac8 * 7.5) : Math.exp(-frac8 * 14) * 0.25;
+      const stabEnv = stabActive ? Math.exp(-frac8 * 7.8) : Math.exp(-frac8 * 15) * 0.22;
       const note = chord[(step8 + bar) % chord.length];
+      const arpNote = chord[(step16 + bar) % chord.length] * 2;
+      const arpEnv = Math.exp(-frac16 * 9.5) * 0.075;
       const synthL =
-        (Math.sin(2 * Math.PI * note * t) +
-          0.32 * Math.sin(2 * Math.PI * note * 2 * t) +
-          0.18 * Math.sin(2 * Math.PI * (chord[1]) * t)) *
-        0.11 *
-        stabEnv;
+        ((Math.sin(2 * Math.PI * note * t) +
+          0.42 * Math.sin(2 * Math.PI * note * 2 * t) +
+          0.18 * Math.sin(2 * Math.PI * note * 3 * t) +
+          0.24 * Math.sin(2 * Math.PI * chord[1] * t)) *
+          0.145 *
+          stabEnv) +
+        Math.sin(2 * Math.PI * arpNote * t) * arpEnv;
       const synthR =
-        (Math.sin(2 * Math.PI * (note * 1.003) * t) +
-          0.32 * Math.sin(2 * Math.PI * note * 2 * t) +
-          0.18 * Math.sin(2 * Math.PI * (chord[2]) * t)) *
-        0.11 *
-        stabEnv;
+        ((Math.sin(2 * Math.PI * (note * 1.003) * t) +
+          0.42 * Math.sin(2 * Math.PI * note * 2 * t) +
+          0.18 * Math.sin(2 * Math.PI * note * 3 * t) +
+          0.24 * Math.sin(2 * Math.PI * chord[2] * t)) *
+          0.145 *
+          stabEnv) +
+        Math.sin(2 * Math.PI * (arpNote * 1.002) * t) * arpEnv;
 
-      // Crisp 16th snare fill on final 2 beats of every 4-bar phrase
+      // 6. Energetic 16th snare/clap turnaround fill on beats 3.25..4 of every 4-bar phrase
       let fill = 0;
       if (Math.floor(beat / 4) % 4 === 3 && beatInBar >= 3.25) {
-        fill = hatNoise * Math.exp(-(frac16 * 12)) * 0.16;
+        fill = hatNoise * Math.exp(-(frac16 * 9.5)) * 0.25;
       }
 
-      left[i] = Math.tanh(kick + clap + hat + fill + bass + synthL * 1.12);
-      right[i] = Math.tanh(kick + clap - hat * 0.85 + fill + bass + synthR * 1.12);
+      left[i] = Math.tanh(kick + clap + hat + fill + bass + synthL * 1.2);
+      right[i] = Math.tanh(kick + clap - hat * 0.85 + fill + bass + synthR * 1.2);
     }
   } else if (synthId === "deep-bass") {
     const bpm = 108;

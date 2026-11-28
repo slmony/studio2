@@ -117,7 +117,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   }))
                 }
                 className={`py-1.5 rounded text-[11px] font-medium transition-colors ${
-                  bg.mode === m.id ? "bg-[#1B212E] text-[#F97316]" : "text-[#94A3B8] hover:text-white"
+                  bg.mode === m.id ? "bg-[#1B212E] text-[#00AE4D]" : "text-[#94A3B8] hover:text-white"
                 }`}
               >
                 {m.label}
@@ -201,7 +201,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   progressBar: { ...p.progressBar, enabled: e.target.checked },
                 }))
               }
-              className="accent-[#F97316] w-4 h-4"
+              className="accent-[#00AE4D] w-4 h-4"
             />
           </label>
           {pb.enabled && (
@@ -219,7 +219,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     }
                     className={`py-1.5 rounded text-[11px] border ${
                       pb.position === pos
-                        ? "border-[#F97316] text-white bg-[#1B212E]"
+                        ? "border-[#00AE4D] text-white bg-[#1B212E]"
                         : "border-[#252D3D] text-[#94A3B8] bg-[#0B0D11]"
                     }`}
                   >
@@ -268,7 +268,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   visualizer: { ...p.visualizer, enabled: e.target.checked },
                 }))
               }
-              className="accent-[#F97316] w-4 h-4"
+              className="accent-[#00AE4D] w-4 h-4"
             />
           </label>
           {vz.enabled && (
@@ -286,7 +286,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                       onUpdateProject((p) => ({ ...p, visualizer: { ...p.visualizer, style: st.id } }))
                     }
                     className={`py-1 rounded text-[11px] ${
-                      vz.style === st.id ? "bg-[#1B212E] text-[#F97316]" : "text-[#94A3B8]"
+                      vz.style === st.id ? "bg-[#1B212E] text-[#00AE4D]" : "text-[#94A3B8]"
                     }`}
                   >
                     {st.label}
@@ -341,7 +341,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   watermark: { ...p.watermark, enabled: e.target.checked },
                 }))
               }
-              className="accent-[#F97316] w-4 h-4"
+              className="accent-[#00AE4D] w-4 h-4"
             />
           </label>
           {wm.enabled && (
@@ -368,20 +368,40 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   }
                 }}
               />
-              <button
-                type="button"
-                onClick={() => logoInputRef.current?.click()}
-                className="w-full py-1.5 px-2.5 rounded-lg border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-[11px] text-[#CBD5E1] flex items-center justify-center gap-1.5"
-              >
-                <Upload className="w-3.5 h-3.5 text-[#F97316]" />
-                <span>{wm.logoSrc ? "تغییر لوگوی PNG" : "آپلود لوگوی برند (PNG)"}</span>
-              </button>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => logoInputRef.current?.click()}
+                  className="flex-1 py-1.5 px-2.5 rounded-lg border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-[11px] text-[#CBD5E1] flex items-center justify-center gap-1.5"
+                >
+                  <Upload className="w-3.5 h-3.5 text-[#00AE4D]" />
+                  <span>{wm.logoSrc ? "تغییر لوگوی PNG" : "آپلود لوگوی برند (PNG)"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateProject((p) => ({
+                      ...p,
+                      watermark: {
+                        ...p.watermark,
+                        logoSrc: "/assets/aistudio/logo_34203fd0.png",
+                        corner: "bottom-center",
+                      },
+                    }))
+                  }
+                  title="بازگردانی لوگوی رسمی شرکت عرفان صنعت اصفهان"
+                  className="px-2.5 py-1.5 rounded-lg border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-[10px] font-semibold text-[#A5A5A4] hover:text-white whitespace-nowrap"
+                >
+                  لوگوی ESE
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-1.5">
                 {[
                   { id: "top-right" as const, label: "بالا راست" },
                   { id: "top-left" as const, label: "بالا چپ" },
                   { id: "bottom-right" as const, label: "پایین راست" },
                   { id: "bottom-left" as const, label: "پایین چپ" },
+                  { id: "bottom-center" as const, label: "پایین وسط (ثابت زیر ویدیو)" },
                 ].map((c) => (
                   <button
                     key={c.id}
@@ -390,8 +410,10 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                       onUpdateProject((p) => ({ ...p, watermark: { ...p.watermark, corner: c.id } }))
                     }
                     className={`py-1 rounded text-[11px] border ${
+                      c.id === "bottom-center" ? "col-span-2" : ""
+                    } ${
                       wm.corner === c.id
-                        ? "border-[#F97316] text-white bg-[#1B212E]"
+                        ? "border-[#00AE4D] text-white bg-[#1B212E]"
                         : "border-[#252D3D] text-[#94A3B8] bg-[#0B0D11]"
                     }`}
                   >
@@ -461,7 +483,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         <input
           value={clip.name}
           onChange={(e) => onUpdateClip(clip.id, (c) => ({ ...c, name: e.target.value }))}
-          className="w-full bg-[#0B0D11] border border-[#252D3D] focus:border-[#F97316] rounded-md px-2.5 py-1.5 text-xs font-bold text-white outline-none"
+          className="w-full bg-[#0B0D11] border border-[#252D3D] focus:border-[#00AE4D] rounded-md px-2.5 py-1.5 text-xs font-bold text-white outline-none"
         />
         <div className="flex items-center gap-1 bg-[#0B0D11] p-1 rounded-lg border border-[#252D3D]">
           {tabs.map((t) => (
@@ -470,7 +492,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               type="button"
               onClick={() => setSubTab(t.id)}
               className={`flex-1 py-1.5 rounded text-[11px] font-medium transition-colors whitespace-nowrap ${
-                activeSub === t.id ? "bg-[#1B212E] text-[#F97316]" : "text-[#94A3B8] hover:text-white"
+                activeSub === t.id ? "bg-[#1B212E] text-[#00AE4D]" : "text-[#94A3B8] hover:text-white"
               }`}
             >
               {t.label}
@@ -604,7 +626,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     }
                     className={`py-1.5 rounded-lg border text-xs flex items-center justify-center gap-1.5 ${
                       clip.transform.flipX
-                        ? "border-[#F97316] bg-[#1B212E] text-white"
+                        ? "border-[#00AE4D] bg-[#1B212E] text-white"
                         : "border-[#252D3D] bg-[#0B0D11] text-[#94A3B8]"
                     }`}
                   >
@@ -621,7 +643,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     }
                     className={`py-1.5 rounded-lg border text-xs flex items-center justify-center gap-1.5 ${
                       clip.transform.flipY
-                        ? "border-[#F97316] bg-[#1B212E] text-white"
+                        ? "border-[#00AE4D] bg-[#1B212E] text-white"
                         : "border-[#252D3D] bg-[#0B0D11] text-[#94A3B8]"
                     }`}
                   >
@@ -651,7 +673,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                             }
                             className={`py-1 rounded text-[10px] font-medium ${
                               clip.transform.fitMode === fm.id
-                                ? "bg-[#1B212E] text-[#F97316]"
+                                ? "bg-[#1B212E] text-[#00AE4D]"
                                 : "text-[#94A3B8]"
                             }`}
                           >
@@ -907,7 +929,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     rows={3}
                     value={clip.textStyle.text}
                     onChange={(e) => updateText({ text: e.target.value })}
-                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#F97316] p-2.5 text-xs text-white outline-none resize-none"
+                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#00AE4D] p-2.5 text-xs text-white outline-none resize-none"
                   />
                 </div>
 
@@ -959,7 +981,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                           onClick={() => updateText({ align: al.id })}
                           className={`p-1.5 rounded ${
                             clip.textStyle?.align === al.id
-                              ? "bg-[#1B212E] text-[#F97316]"
+                              ? "bg-[#1B212E] text-[#00AE4D]"
                               : "text-[#94A3B8]"
                           }`}
                         >
@@ -1018,7 +1040,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     type="checkbox"
                     checked={clip.textStyle.useGradient}
                     onChange={(e) => updateText({ useGradient: e.target.checked })}
-                    className="accent-[#F97316] w-4 h-4"
+                    className="accent-[#00AE4D] w-4 h-4"
                   />
                 </label>
 
@@ -1063,7 +1085,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   <span>رنگ اصلی استیکر</span>
                   <input
                     type="color"
-                    value={clip.stickerAccent || "#F97316"}
+                    value={clip.stickerAccent || "#00AE4D"}
                     onChange={(e) => onUpdateClip(clip.id, (c) => ({ ...c, stickerAccent: e.target.value }))}
                     className="w-12 h-7 rounded bg-[#0B0D11] border border-[#252D3D] cursor-pointer"
                   />
@@ -1077,7 +1099,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   <span>رنگ اول شکل</span>
                   <input
                     type="color"
-                    value={clip.shapeFill?.startsWith("#") ? clip.shapeFill : "#F97316"}
+                    value={clip.shapeFill?.startsWith("#") ? clip.shapeFill : "#00AE4D"}
                     onChange={(e) => onUpdateClip(clip.id, (c) => ({ ...c, shapeFill: e.target.value }))}
                     className="w-12 h-7 rounded bg-[#0B0D11] border border-[#252D3D] cursor-pointer"
                   />
@@ -1118,7 +1140,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                         },
                       }))
                     }
-                    className="accent-[#F97316] w-4 h-4"
+                    className="accent-[#00AE4D] w-4 h-4"
                   />
                 </label>
 
@@ -1211,7 +1233,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                         }
                         className={`py-1.5 rounded text-[11px] border ${
                           (clip.audio?.eqPreset ?? "normal") === eq.id
-                            ? "border-[#F97316] bg-[#1B212E] text-white"
+                            ? "border-[#00AE4D] bg-[#1B212E] text-white"
                             : "border-[#252D3D] bg-[#0B0D11] text-[#94A3B8]"
                         }`}
                       >

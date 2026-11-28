@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import { Download, FolderOpen, Keyboard, Trash2, Upload, X } from "lucide-react";
+import { Download, FilePlus2, FolderOpen, Keyboard, Trash2, Upload, X } from "lucide-react";
 import { downloadProjectJson } from "../engine/storage";
 import type { ProjectState } from "../types/studio";
 
@@ -8,6 +8,7 @@ interface ProjectsModalProps {
   currentProject: ProjectState;
   savedProjects: ProjectState[];
   onClose: () => void;
+  onNewProject: () => void;
   onOpenProject: (p: ProjectState) => void;
   onDeleteProject: (id: string) => void;
   onImportProjectJson: (p: ProjectState) => void;
@@ -18,6 +19,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({
   currentProject,
   savedProjects,
   onClose,
+  onNewProject,
   onOpenProject,
   onDeleteProject,
   onImportProjectJson,
@@ -30,7 +32,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({
       <div className="w-full max-w-lg bg-[#131720] border border-[#252D3D] rounded-xl overflow-hidden shadow-2xl">
         <div className="px-5 py-4 border-b border-[#252D3D] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <FolderOpen className="w-4 h-4 text-[#F97316]" />
+            <FolderOpen className="w-4 h-4 text-[#00AE4D]" />
             <h2 className="text-sm font-bold text-white">مدیریت پروژه‌ها و فایل JSON</h2>
           </div>
           <button
@@ -43,13 +45,25 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({
         </div>
 
         <div className="p-5 space-y-4">
+          <button
+            type="button"
+            onClick={() => {
+              onNewProject();
+              onClose();
+            }}
+            className="w-full py-2.5 px-3 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+          >
+            <FilePlus2 className="w-4 h-4" />
+            <span>ایجاد پروژه جدید (محصول جدید با تم برند)</span>
+          </button>
+
           <div className="grid grid-cols-2 gap-2.5">
             <button
               type="button"
               onClick={() => downloadProjectJson(currentProject)}
               className="py-2.5 px-3 rounded-lg bg-[#1B212E] hover:bg-[#252D3D] text-xs font-semibold text-white flex items-center justify-center gap-2 transition-colors"
             >
-              <Download className="w-3.5 h-3.5 text-[#F97316]" />
+              <Download className="w-3.5 h-3.5 text-[#00AE4D]" />
               <span>خروجی فایل پروژه (JSON)</span>
             </button>
 
@@ -114,7 +128,7 @@ export const ProjectsModal: React.FC<ProjectsModalProps> = ({
                           onOpenProject(proj);
                           onClose();
                         }}
-                        className="px-3 py-1.5 rounded-md bg-[#F97316] hover:bg-[#FB923C] text-[#0B0D11] text-[11px] font-bold"
+                        className="px-3 py-1.5 rounded-md bg-[#00AE4D] hover:bg-[#22C55E] text-[#0B0D11] text-[11px] font-bold"
                       >
                         باز کردن
                       </button>
@@ -160,7 +174,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onClose })
       <div className="w-full max-w-md bg-[#131720] border border-[#252D3D] rounded-xl overflow-hidden shadow-2xl">
         <div className="px-5 py-4 border-b border-[#252D3D] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Keyboard className="w-4 h-4 text-[#F97316]" />
+            <Keyboard className="w-4 h-4 text-[#00AE4D]" />
             <h2 className="text-sm font-bold text-white">میانبرهای صفحه‌کلید استودیو</h2>
           </div>
           <button
@@ -177,7 +191,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onClose })
               <span className="text-[#CBD5E1]">{item.desc}</span>
               <kbd
                 dir="ltr"
-                className="px-2 py-1 rounded bg-[#0B0D11] border border-[#252D3D] font-mono-tabular text-[11px] text-[#F97316] shrink-0"
+                className="px-2 py-1 rounded bg-[#0B0D11] border border-[#252D3D] font-mono-tabular text-[11px] text-[#00AE4D] shrink-0"
               >
                 {item.key}
               </kbd>

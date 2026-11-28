@@ -152,7 +152,29 @@ function processWavAndAlignWords(
   const trimmedSampleCount = Math.max(frameSize, trimEndSample - trimStartSample);
   const trimmedDataBytes = trimmedSampleCount * blockAlign;
 
-  // Rebuild clean 44-byte RIFF WAV header for trimmed audio
+  // Compute active speech RMS so every TTS sentence matches one steady constant volume
+  let activeSqSum = 0;
+  let activeSampleCount = 0;
+  for (let f = startFrame; f <= endFrame; f++) {
+    if (rms[f] >= silenceThresh * 0.85) {
+      const base = f * frameSize;
+      for (let j = 0; j < frameSize && base + j < totalSamples; j++) {
+        const s = samples[base + j];
+        activeSqSum += s * s;
+        activeSampleCount++;
+      }
+    }
+  }
+  const activeMeanRms = Math.sqrt(activeSqSum / Math.max(1, activeSampleCount));
+  const targetRms = 0.22;
+  const baseGain = Math.min(4.5, Math.max(0.4, targetRms / Math.max(0.015, activeMeanRms)));
+
+  // Smooth slow 350ms loudness follower so intra-sentence dynamics stay completely even
+  const winFrames = 35;
+  const halfWin = Math.floor(winFrames / 2);
+  const deClickSamples = Math.min(Math.floor(sampleRate * 0.003), Math.floor(trimmedSampleCount / 4));
+
+  // Rebuild clean 44-byte RIFF WAV header for leveled, trimmed audio
   const trimmedWav = Buffer.alloc(44 + trimmedDataBytes);
   trimmedWav.write("RIFF", 0, "ascii");
   trimmedWav.writeUInt32LE(36 + trimmedDataBytes, 4);
@@ -167,12 +189,43 @@ function processWavAndAlignWords(
   trimmedWav.writeUInt16LE(bitsPerSample, 34);
   trimmedWav.write("data", 36, "ascii");
   trimmedWav.writeUInt32LE(trimmedDataBytes, 40);
-  wavBuf.copy(
-    trimmedWav,
-    44,
-    dataOffset + trimStartSample * blockAlign,
-    dataOffset + trimEndSample * blockAlign
-  );
+
+  for (let i = 0; i < trimmedSampleCount; i++) {
+    const srcSampleIdx = trimStartSample + i;
+    const frameIdx = Math.min(numFrames - 1, Math.floor(srcSampleIdx / frameSize));
+    let localSq = 0;
+    let localCnt = 0;
+    const fStart = Math.max(startFrame, frameIdx - halfWin);
+    const fEnd = Math.min(endFrame, frameIdx + halfWin);
+    for (let f = fStart; f <= fEnd; f++) {
+      if (rms[f] >= silenceThresh * 0.85) {
+        localSq += rms[f] * rms[f];
+        localCnt++;
+      }
+    }
+    const localRms = localCnt > 0 ? Math.sqrt(localSq / localCnt) : activeMeanRms;
+    const agcRatio = Math.min(1.32, Math.max(0.76, activeMeanRms / Math.max(0.015, localRms)));
+    let val = samples[srcSampleIdx] * baseGain * agcRatio;
+
+    // Clean soft ceiling above 0.85 so peaks never clip or drop
+    const absVal = Math.abs(val);
+    if (absVal > 0.85) {
+      val = Math.sign(val) * (0.85 + 0.09 * Math.tanh((absVal - 0.85) / 0.15));
+    }
+
+    // 3ms inaudible micro-declick at buffer edges
+    if (i < deClickSamples) {
+      val *= i / Math.max(1, deClickSamples);
+    } else if (i >= trimmedSampleCount - deClickSamples) {
+      val *= (trimmedSampleCount - 1 - i) / Math.max(1, deClickSamples);
+    }
+
+    const int16 = Math.max(-32768, Math.min(32767, Math.round(val * 32767)));
+    for (let ch = 0; ch < numChannels; ch++) {
+      const dstOffset = 44 + i * blockAlign + ch * bytesPerSample;
+      trimmedWav.writeInt16LE(int16, dstOffset);
+    }
+  }
 
   const duration = Number((trimmedSampleCount / sampleRate).toFixed(3));
   const activeFrames = endFrame - startFrame + 1;
@@ -260,7 +313,7 @@ async function generateOrFetchCachedTts(params: {
   const { text, voiceName, style } = params;
   const hash = crypto
     .createHash("sha256")
-    .update(`${TTS_MODEL_NAME}|${voiceName}|${style}|${text.trim()}`)
+    .update(`v2-rms22|${TTS_MODEL_NAME}|${voiceName}|${style}|${text.trim()}`)
     .digest("hex")
     .slice(0, 20);
 
@@ -585,7 +638,7 @@ ${scriptText.trim()}
       const {
         text,
         voiceName = "Puck",
-        style = "Energetic, enthusiastic young Persian male commercial narrator, crisp diction, vibrant and exciting promotional pace",
+        style = "Consistent, steady, confident young Persian male commercial narrator, uniform calm-confident tone, constant microphone proximity and steady constant volume throughout without shouting or whispering",
       } = req.body ?? {};
 
       if (!text || typeof text !== "string" || !text.trim()) {

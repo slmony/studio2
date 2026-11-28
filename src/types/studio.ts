@@ -239,7 +239,7 @@ export interface WatermarkConfig {
   enabled: boolean;
   handle: string;
   logoSrc?: string;
-  corner: "top-right" | "top-left" | "bottom-right" | "bottom-left";
+  corner: "top-right" | "top-left" | "bottom-right" | "bottom-left" | "bottom-center";
   opacity: number;
   scale: number;
 }

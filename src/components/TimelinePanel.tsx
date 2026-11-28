@@ -73,6 +73,7 @@ interface TimelinePanelProps {
   onTrimSelectedToPlayhead: (side: "start" | "end") => void;
   onDuplicateSelected: () => void;
   onDeleteSelected: (ripple?: boolean) => void;
+  onDeleteClipById: (clipId: string, ripple?: boolean) => void;
   onToggleSnap: () => void;
   onAddMarker: () => void;
   onRemoveMarker: (id: string) => void;
@@ -80,8 +81,8 @@ interface TimelinePanelProps {
   onMoveTrackOrder: (trackId: string, dir: -1 | 1) => void;
   onAddTrack: (kind: Track["kind"]) => void;
   onDeleteTrack: (trackId: string) => void;
-  onQuickAddToTrack: (trackId: string | null, item: TimelineQuickAddItem) => void;
-  onUploadMediaToTrack: (files: FileList, trackId: string | null) => void;
+  onQuickAddToTrack: (trackId: string | null, item: TimelineQuickAddItem, customStart?: number) => void;
+  onUploadMediaToTrack: (files: FileList, trackId: string | null, customStart?: number) => void;
 }
 
 const TRACK_COLORS: Record<Track["kind"], { bg: string; border: string; text: string }> = {
@@ -95,11 +96,27 @@ type MenuState =
   | {
       kind: "add-clip";
       track: Track | null;
+      insertAt?: number;
       top: number;
       left: number;
     }
   | {
       kind: "add-track";
+      top: number;
+      left: number;
+    }
+  | {
+      kind: "clip-ctx";
+      clip: Clip;
+      locked: boolean;
+      clickTime: number;
+      top: number;
+      left: number;
+    }
+  | {
+      kind: "lane-ctx";
+      track: Track;
+      clickTime: number;
       top: number;
       left: number;
     }
@@ -127,6 +144,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onTrimSelectedToPlayhead,
   onDuplicateSelected,
   onDeleteSelected,
+  onDeleteClipById,
   onToggleSnap,
   onAddMarker,
   onRemoveMarker,
@@ -137,14 +155,15 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onQuickAddToTrack,
   onUploadMediaToTrack,
 }) => {
-  const [pxPerSec, setPxPerSec] = useState(24);
+  const [pxPerSec, setPxPerSec] = useState(22);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [menu, setMenu] = useState<MenuState>(null);
+  const [dragOverTrackId, setDragOverTrackId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const lanesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const pendingUploadRef = useRef<{ trackId: string | null; accept: string }>({
+  const pendingUploadRef = useRef<{ trackId: string | null; accept: string; customStart?: number }>({
     trackId: null,
     accept: "video/*,image/*,audio/*",
   });
@@ -163,8 +182,14 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     [project.clips, selectedClipId]
   );
 
+  const selectedTrackLocked = useMemo(() => {
+    if (!selectedClip) return false;
+    return Boolean(project.tracks.find((t) => t.id === selectedClip.trackId)?.locked);
+  }, [selectedClip, project.tracks]);
+
   const canSplitSelected = Boolean(
     selectedClip &&
+      !selectedTrackLocked &&
       currentTime > selectedClip.start + 0.12 &&
       currentTime < selectedClip.start + selectedClip.duration - 0.12
   );
@@ -211,27 +236,32 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     if (scrollRef.current) scrollRef.current.scrollLeft = 0;
   };
 
+  const clampMenuPos = (rawLeft: number, rawTop: number, w: number, h: number) => ({
+    left: Math.max(12, Math.min(window.innerWidth - w - 12, rawLeft)),
+    top: Math.max(12, Math.min(window.innerHeight - h - 12, rawTop)),
+  });
+
   const openFloatingMenu = (
     e: React.MouseEvent<HTMLButtonElement>,
     kind: "add-clip" | "add-track",
-    track: Track | null = null
+    track: Track | null = null,
+    insertAt?: number
   ) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
-    const menuWidth = kind === "add-clip" ? 280 : 210;
-    const menuHeight = kind === "add-clip" ? 310 : 190;
-    const left = Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.left));
-    const top = Math.max(12, rect.top - menuHeight - 8);
+    const w = kind === "add-clip" ? 290 : 210;
+    const h = kind === "add-clip" ? 330 : 190;
+    const pos = clampMenuPos(rect.left, rect.top - h - 8, w, h);
     if (kind === "add-clip") {
-      setMenu({ kind: "add-clip", track, top, left });
+      setMenu({ kind: "add-clip", track, insertAt, ...pos });
     } else {
-      setMenu({ kind: "add-track", top, left });
+      setMenu({ kind: "add-track", ...pos });
     }
   };
 
-  const triggerFileUpload = (trackId: string | null, accept: string) => {
+  const triggerFileUpload = (trackId: string | null, accept: string, customStart?: number) => {
     setMenu(null);
-    pendingUploadRef.current = { trackId, accept };
+    pendingUploadRef.current = { trackId, accept, customStart };
     if (fileInputRef.current) {
       fileInputRef.current.accept = accept;
       fileInputRef.current.value = "";
@@ -264,6 +294,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     mode: "move" | "trim-start" | "trim-end",
     locked: boolean
   ) => {
+    if (e.button !== 0) return;
     e.stopPropagation();
 
     if (toolMode === "razor") {
@@ -315,6 +346,13 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     window.addEventListener("pointerup", onUp);
   };
 
+  const getLaneTimeFromClientX = (clientX: number) => {
+    const lanesEl = lanesRef.current;
+    if (!lanesEl) return currentTime;
+    const rect = lanesEl.getBoundingClientRect();
+    return Math.max(0, Math.min(timelineLength, Number(((clientX - rect.left) / pxPerSec).toFixed(2))));
+  };
+
   const rulerTicks = useMemo(() => {
     const step = pxPerSec >= 90 ? 1 : pxPerSec >= 45 ? 2 : 5;
     const ticks: number[] = [];
@@ -334,7 +372,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   const displayTracks = [...project.tracks].reverse();
 
   return (
-    <section className="h-[278px] shrink-0 bg-[#131720] border-t border-[#252D3D] flex flex-col select-none">
+    <section className="h-[316px] shrink-0 bg-[#131720] border-t border-[#252D3D] flex flex-col select-none">
       {/* Hidden input for direct timeline media/audio upload */}
       <input
         ref={fileInputRef}
@@ -343,12 +381,16 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
         className="hidden"
         onChange={(e) => {
           if (e.target.files && e.target.files.length > 0) {
-            onUploadMediaToTrack(e.target.files, pendingUploadRef.current.trackId);
+            onUploadMediaToTrack(
+              e.target.files,
+              pendingUploadRef.current.trackId,
+              pendingUploadRef.current.customStart
+            );
           }
         }}
       />
 
-      {/* Timeline Advanced Editing Toolbar */}
+      {/* Tier 1: Primary Timeline Cut / Delete / Add / Zoom Toolbar */}
       <div className="h-10 shrink-0 px-3 border-b border-[#252D3D] flex items-center justify-between gap-2 overflow-x-auto">
         <div className="flex items-center gap-1 shrink-0">
           {/* Select vs Razor Blade Tool Mode */}
@@ -369,15 +411,15 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             <button
               type="button"
               onClick={() => onChangeToolMode("razor")}
-              title="ابزار تیغ برش مستقیم روی کلیپ‌ها (C)"
+              title="ابزار تیغ کات: با کلیک روی هر قسمت از کلیپ، همانجا برش می‌خورد (C)"
               className={`px-2 py-1 rounded text-[11px] font-medium flex items-center gap-1 transition-colors whitespace-nowrap ${
                 toolMode === "razor"
-                  ? "bg-[#F97316] text-white"
+                  ? "bg-[#00AE4D] text-white"
                   : "text-[#94A3B8] hover:text-white"
               }`}
             >
               <Scissors className="w-3.5 h-3.5" />
-              <span>تیغ برش</span>
+              <span>تیغ کات</span>
             </button>
           </div>
 
@@ -388,22 +430,22 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             type="button"
             onClick={onSplitAtPlayhead}
             disabled={!canSplitSelected && !hasUnlockedClipAtPlayhead}
-            title="برش کلیپ در محل هد پخش (S)"
+            title="کات کلیپ در محل هد پخش (S)"
             className="px-2 py-1 rounded-md text-[11px] font-medium text-[#E2E8F0] bg-[#1B212E] hover:bg-[#252D3D] disabled:opacity-35 disabled:pointer-events-none flex items-center gap-1 transition-colors whitespace-nowrap"
           >
-            <Scissors className="w-3.5 h-3.5 text-[#F97316]" />
-            <span>برش هد</span>
+            <Scissors className="w-3.5 h-3.5 text-[#00AE4D]" />
+            <span>کات در هد</span>
           </button>
 
           <button
             type="button"
             onClick={onSplitAllAtPlayhead}
             disabled={!hasUnlockedClipAtPlayhead}
-            title="برش همزمان تمام لایه‌های باز در محل هد پخش"
+            title="کات همزمان تمام لایه‌های باز در محل هد پخش"
             className="px-2 py-1 rounded-md text-[11px] font-medium text-[#CBD5E1] hover:bg-[#1B212E] hover:text-white disabled:opacity-35 disabled:pointer-events-none flex items-center gap-1 transition-colors whitespace-nowrap"
           >
             <Layers className="w-3.5 h-3.5 text-[#38BDF8]" />
-            <span>برش همه</span>
+            <span>کات همه</span>
           </button>
 
           <button
@@ -413,7 +455,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             title="حذف ابتدای کلیپ تا هد پخش ([)"
             className="px-1.5 py-1 rounded-md text-[11px] font-mono-tabular text-[#CBD5E1] hover:bg-[#1B212E] hover:text-white disabled:opacity-35 disabled:pointer-events-none transition-colors whitespace-nowrap"
           >
-            ابتدا [
+            چپ [
           </button>
 
           <button
@@ -423,7 +465,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             title="حذف انتهای کلیپ از هد پخش (])"
             className="px-1.5 py-1 rounded-md text-[11px] font-mono-tabular text-[#CBD5E1] hover:bg-[#1B212E] hover:text-white disabled:opacity-35 disabled:pointer-events-none transition-colors whitespace-nowrap"
           >
-            ] انتها
+            ] راست
           </button>
 
           <span className="h-4 w-px bg-[#252D3D] mx-0.5" aria-hidden="true" />
@@ -443,7 +485,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           <button
             type="button"
             onClick={() => onDeleteSelected(false)}
-            disabled={!selectedClipId}
+            disabled={!selectedClipId || selectedTrackLocked}
             title="حذف کلیپ انتخاب‌شده (Delete)"
             className="px-2 py-1 rounded-md text-[11px] font-medium text-[#CBD5E1] hover:bg-red-500/15 hover:text-red-400 disabled:opacity-35 disabled:pointer-events-none flex items-center gap-1 transition-colors whitespace-nowrap"
           >
@@ -454,8 +496,8 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           <button
             type="button"
             onClick={() => onDeleteSelected(true)}
-            disabled={!selectedClipId}
-            title="حذف و بستن فاصله بعدی‌ها (Shift+Delete)"
+            disabled={!selectedClipId || selectedTrackLocked}
+            title="حذف کلیپ و بستن فاصله بعدی‌ها (Shift+Delete)"
             className="px-2 py-1 rounded-md text-[11px] font-medium text-[#CBD5E1] hover:bg-red-500/15 hover:text-red-300 disabled:opacity-35 disabled:pointer-events-none flex items-center gap-1 transition-colors whitespace-nowrap"
           >
             <span>حذف+جمع</span>
@@ -463,16 +505,48 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
 
           <span className="h-4 w-px bg-[#252D3D] mx-0.5" aria-hidden="true" />
 
-          {/* Direct Add Clip Popover */}
+          {/* Direct Add Controls */}
           <button
             type="button"
             onClick={(e) => openFloatingMenu(e, "add-clip", null)}
-            title="افزودن مستقیم ویدیو، عکس، متن یا صدا به تایم‌لاین"
-            className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#F97316]/15 text-[#FB923C] border border-[#F97316]/40 hover:bg-[#F97316] hover:text-white flex items-center gap-1 transition-colors whitespace-nowrap"
+            title="افزودن ویدیو، عکس، متن یا صدا به تایم‌لاین"
+            className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#00AE4D]/15 text-[#22C55E] border border-[#00AE4D]/45 hover:bg-[#00AE4D] hover:text-white flex items-center gap-1 transition-colors whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>افزودن</span>
+            <span>افزودن کلیپ</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              onQuickAddToTrack(
+                project.tracks.find((t) => t.kind === "text")?.id ?? null,
+                { type: "text-headline" }
+              )
+            }
+            title="افزودن فوری تیتر جدید در محل هد پخش"
+            className="px-2 py-1 rounded-md text-[11px] font-medium text-[#E9D5FF] bg-[#31214F]/60 hover:bg-[#31214F] flex items-center gap-1 transition-colors whitespace-nowrap"
+          >
+            <Plus className="w-3 h-3" />
+            <span>متن</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              triggerFileUpload(
+                project.tracks.find((t) => t.kind === "audio")?.id ?? null,
+                "audio/*"
+              )
+            }
+            title="افزودن مستقیم فایل صوتی یا موسیقی به تایم‌لاین"
+            className="px-2 py-1 rounded-md text-[11px] font-medium text-[#D1FAE5] bg-[#10392E]/60 hover:bg-[#10392E] flex items-center gap-1 transition-colors whitespace-nowrap"
+          >
+            <Plus className="w-3 h-3" />
+            <span>صدا</span>
+          </button>
+
+          <span className="h-4 w-px bg-[#252D3D] mx-0.5" aria-hidden="true" />
 
           <button
             type="button"
@@ -490,7 +564,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             title="چسبندگی مغناطیسی کلیپ‌ها"
             className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors whitespace-nowrap ${
               snapEnabled
-                ? "bg-[#F97316]/20 text-[#FB923C]"
+                ? "bg-[#00AE4D]/20 text-[#22C55E]"
                 : "text-[#94A3B8] hover:bg-[#1B212E] hover:text-white"
             }`}
           >
@@ -518,30 +592,6 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           >
             <Redo2 className="w-3.5 h-3.5" />
           </button>
-
-          {project.markers.length > 0 && (
-            <div className="hidden 2xl:flex items-center gap-1 border-r border-[#252D3D] pr-2 mr-1 overflow-x-auto max-w-[320px]">
-              {project.markers.map((mk, idx) => {
-                const isActive =
-                  currentTime >= mk.time &&
-                  (idx === project.markers.length - 1 || currentTime < project.markers[idx + 1].time);
-                return (
-                  <button
-                    key={mk.id}
-                    type="button"
-                    onClick={() => onSeek(mk.time)}
-                    className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 ${
-                      isActive
-                        ? "bg-[#1B212E] text-[#F97316]"
-                        : "text-[#94A3B8] hover:text-white hover:bg-[#1B212E]/70"
-                    }`}
-                  >
-                    {mk.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
 
         {/* Zoom & Fit Controls */}
@@ -553,7 +603,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             className="px-2 py-1 rounded text-[11px] bg-[#1B212E] hover:bg-[#252D3D] text-[#CBD5E1] flex items-center gap-1 transition-colors whitespace-nowrap"
           >
             <Maximize2 className="w-3 h-3" />
-            <span>کل</span>
+            <span>نمایش کل</span>
           </button>
           <button
             type="button"
@@ -586,6 +636,135 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
         </div>
       </div>
 
+      {/* Tier 2: Precision Selected-Clip Timing Strip OR Quick Slide Markers */}
+      <div className="h-8 shrink-0 px-3 border-b border-[#202736] bg-[#0F131B] flex items-center justify-between gap-3 text-[11px] overflow-x-auto">
+        {selectedClip ? (
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span className="px-2 py-0.5 rounded bg-[#00AE4D]/15 text-[#22C55E] border border-[#00AE4D]/35 font-semibold truncate max-w-[200px]">
+              {selectedClip.name}
+            </span>
+
+            <div className="flex items-center gap-1 text-[#94A3B8]">
+              <span>شروع:</span>
+              <button
+                type="button"
+                disabled={selectedTrackLocked}
+                onClick={() =>
+                  onUpdateClipTiming(
+                    selectedClip.id,
+                    Math.max(0, Number((selectedClip.start - 0.1).toFixed(2))),
+                    selectedClip.duration
+                  )
+                }
+                className="px-1.5 py-0.5 rounded bg-[#1B212E] hover:bg-[#252D3D] text-white disabled:opacity-35 font-mono-tabular"
+              >
+                -0.1
+              </button>
+              <input
+                type="number"
+                step={0.05}
+                min={0}
+                disabled={selectedTrackLocked}
+                value={Number(selectedClip.start.toFixed(2))}
+                onChange={(e) => {
+                  const val = Math.max(0, Number(e.target.value) || 0);
+                  onUpdateClipTiming(selectedClip.id, val, selectedClip.duration);
+                }}
+                className="w-16 px-1.5 py-0.5 rounded bg-[#161B26] border border-[#252D3D] text-white font-mono-tabular text-center"
+              />
+              <button
+                type="button"
+                disabled={selectedTrackLocked}
+                onClick={() =>
+                  onUpdateClipTiming(
+                    selectedClip.id,
+                    Number((selectedClip.start + 0.1).toFixed(2)),
+                    selectedClip.duration
+                  )
+                }
+                className="px-1.5 py-0.5 rounded bg-[#1B212E] hover:bg-[#252D3D] text-white disabled:opacity-35 font-mono-tabular"
+              >
+                +0.1
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1 text-[#94A3B8]">
+              <span>مدت:</span>
+              <button
+                type="button"
+                disabled={selectedTrackLocked}
+                onClick={() =>
+                  onUpdateClipTiming(
+                    selectedClip.id,
+                    selectedClip.start,
+                    Math.max(0.25, Number((selectedClip.duration - 0.1).toFixed(2)))
+                  )
+                }
+                className="px-1.5 py-0.5 rounded bg-[#1B212E] hover:bg-[#252D3D] text-white disabled:opacity-35 font-mono-tabular"
+              >
+                -0.1
+              </button>
+              <input
+                type="number"
+                step={0.05}
+                min={0.25}
+                disabled={selectedTrackLocked}
+                value={Number(selectedClip.duration.toFixed(2))}
+                onChange={(e) => {
+                  const val = Math.max(0.25, Number(e.target.value) || 0.5);
+                  onUpdateClipTiming(selectedClip.id, selectedClip.start, val);
+                }}
+                className="w-16 px-1.5 py-0.5 rounded bg-[#161B26] border border-[#252D3D] text-white font-mono-tabular text-center"
+              />
+              <button
+                type="button"
+                disabled={selectedTrackLocked}
+                onClick={() =>
+                  onUpdateClipTiming(
+                    selectedClip.id,
+                    selectedClip.start,
+                    Number((selectedClip.duration + 0.1).toFixed(2))
+                  )
+                }
+                className="px-1.5 py-0.5 rounded bg-[#1B212E] hover:bg-[#252D3D] text-white disabled:opacity-35 font-mono-tabular"
+              >
+                +0.1
+              </button>
+            </div>
+
+            <span className="text-[#64748B] font-mono-tabular">
+              پایان: {(selectedClip.start + selectedClip.duration).toFixed(2)}s
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            {project.markers.map((mk, idx) => {
+              const isActive =
+                currentTime >= mk.time &&
+                (idx === project.markers.length - 1 || currentTime < project.markers[idx + 1].time);
+              return (
+                <button
+                  key={mk.id}
+                  type="button"
+                  onClick={() => onSeek(mk.time)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    isActive
+                      ? "bg-[#1B212E] text-[#00AE4D] border border-[#00AE4D]/40"
+                      : "text-[#94A3B8] hover:text-white hover:bg-[#1B212E]/70"
+                  }`}
+                >
+                  {mk.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <span className="hidden lg:inline text-[10px] text-[#64748B] whitespace-nowrap shrink-0">
+          کلیک‌راست = منوی کات/حذف/افزودن • کشیدن و رها کردن فایل مستقیم روی لایه‌ها
+        </span>
+      </div>
+
       {/* Main Split: Track Headers (Right in RTL) + Scrollable LTR Time Grid */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Track Control Column */}
@@ -596,7 +775,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
               type="button"
               onClick={(e) => openFloatingMenu(e, "add-track")}
               title="افزودن لایه جدید به تایم‌لاین"
-              className="px-1.5 py-0.5 rounded bg-[#1B212E] hover:bg-[#F97316] text-[#CBD5E1] hover:text-white flex items-center gap-1 text-[10px] font-medium transition-colors"
+              className="px-1.5 py-0.5 rounded bg-[#1B212E] hover:bg-[#00AE4D] text-[#CBD5E1] hover:text-white flex items-center gap-1 text-[10px] font-medium transition-colors"
             >
               <Plus className="w-3 h-3" />
               <span>لایه جدید</span>
@@ -622,7 +801,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                     type="button"
                     onClick={(e) => openFloatingMenu(e, "add-clip", track)}
                     title={`افزودن کلیپ جدید در لایه «${track.name}»`}
-                    className="p-1 rounded text-[#94A3B8] hover:text-[#FB923C] hover:bg-[#F97316]/15 transition-colors"
+                    className="p-1 rounded text-[#94A3B8] hover:text-[#22C55E] hover:bg-[#00AE4D]/15 transition-colors"
                   >
                     <Plus className="w-3 h-3" />
                   </button>
@@ -641,7 +820,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                     onClick={() => onToggleTrackFlag(track.id, "locked")}
                     title={track.locked ? "باز کردن قفل لایه" : "قفل کردن لایه"}
                     className={`p-1 rounded ${
-                      track.locked ? "text-[#F97316] bg-[#F97316]/15" : "text-[#94A3B8] hover:text-white"
+                      track.locked ? "text-[#00AE4D] bg-[#00AE4D]/15" : "text-[#94A3B8] hover:text-white"
                     }`}
                   >
                     {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
@@ -781,11 +960,36 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
               {displayTracks.map((track) => {
                 const trackClips = project.clips.filter((c) => c.trackId === track.id);
                 const style = TRACK_COLORS[track.kind];
+                const isDragOver = dragOverTrackId === track.id;
                 return (
                   <div
                     key={track.id}
                     onClick={() => onSelectClip(null)}
-                    className={`h-11 relative ${track.visible ? "" : "opacity-40"}`}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const clickTime = getLaneTimeFromClientX(e.clientX);
+                      const pos = clampMenuPos(e.clientX, e.clientY, 225, 175);
+                      setMenu({ kind: "lane-ctx", track, clickTime, ...pos });
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (dragOverTrackId !== track.id) setDragOverTrackId(track.id);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverTrackId === track.id) setDragOverTrackId(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverTrackId(null);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        const dropTime = getLaneTimeFromClientX(e.clientX);
+                        onUploadMediaToTrack(e.dataTransfer.files, track.id, dropTime);
+                      }
+                    }}
+                    className={`h-11 relative transition-colors ${track.visible ? "" : "opacity-40"} ${
+                      isDragOver ? "bg-[#00AE4D]/15 ring-1 ring-inset ring-[#00AE4D]/60" : ""
+                    }`}
                   >
                     {trackClips.map((clip) => {
                       const left = clip.start * pxPerSec;
@@ -801,8 +1005,22 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                         <div
                           key={clip.id}
                           onPointerDown={(e) => startClipDrag(e, clip, "move", track.locked)}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onSelectClip(clip.id);
+                            const clickTime = getLaneTimeFromClientX(e.clientX);
+                            const pos = clampMenuPos(e.clientX, e.clientY, 230, 260);
+                            setMenu({
+                              kind: "clip-ctx",
+                              clip,
+                              locked: track.locked,
+                              clickTime,
+                              ...pos,
+                            });
+                          }}
                           style={{ left: `${left}px`, width: `${width}px` }}
-                          className={`absolute top-1.5 bottom-1.5 rounded-md border overflow-hidden flex items-center transition-shadow ${
+                          className={`group/clip absolute top-1.5 bottom-1.5 rounded-md border overflow-hidden flex items-center transition-shadow ${
                             toolMode === "razor"
                               ? "cursor-crosshair hover:brightness-125"
                               : track.locked
@@ -810,7 +1028,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                                 : "cursor-grab active:cursor-grabbing"
                           } ${style.bg} ${
                             isSelected
-                              ? "border-[#F97316] ring-1 ring-[#F97316] z-10"
+                              ? "border-[#00AE4D] ring-1 ring-[#00AE4D] z-10"
                               : `${style.border} hover:brightness-110`
                           }`}
                         >
@@ -820,7 +1038,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                             className={`w-2 h-full shrink-0 z-10 ${
                               toolMode === "razor"
                                 ? "cursor-crosshair"
-                                : "cursor-col-resize hover:bg-[#F97316]/60"
+                                : "cursor-col-resize hover:bg-[#00AE4D]/60"
                             }`}
                           />
 
@@ -853,13 +1071,47 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                             </span>
                           </div>
 
+                          {/* Inline Quick Cut & Delete Actions on Selected Clip */}
+                          {isSelected && toolMode === "select" && !track.locked && width >= 92 && (
+                            <div
+                              onPointerDown={(e) => e.stopPropagation()}
+                              className="flex items-center gap-0.5 px-1 z-20 shrink-0"
+                            >
+                              {currentTime > clip.start + 0.12 &&
+                                currentTime < clip.start + clip.duration - 0.12 && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onSplitClipAtTime(clip.id, currentTime);
+                                    }}
+                                    title="کات کلیپ در محل هد پخش"
+                                    className="p-0.5 rounded bg-[#0D1017]/85 hover:bg-[#00AE4D] text-[#22C55E] hover:text-white transition-colors"
+                                  >
+                                    <Scissors className="w-3 h-3" />
+                                  </button>
+                                )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteClipById(clip.id, false);
+                                }}
+                                title="حذف این کلیپ"
+                                className="p-0.5 rounded bg-[#0D1017]/85 hover:bg-red-500 text-red-400 hover:text-white transition-colors"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+
                           {/* Right Trim Handle */}
                           <div
                             onPointerDown={(e) => startClipDrag(e, clip, "trim-end", track.locked)}
                             className={`w-2 h-full shrink-0 z-10 ${
                               toolMode === "razor"
                                 ? "cursor-crosshair"
-                                : "cursor-col-resize hover:bg-[#F97316]/60"
+                                : "cursor-col-resize hover:bg-[#00AE4D]/60"
                             }`}
                           />
                         </div>
@@ -873,9 +1125,9 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
               {toolMode === "razor" && hoverTime !== null && (
                 <div
                   style={{ left: `${hoverTime * pxPerSec}px` }}
-                  className="absolute top-0 bottom-0 w-px border-l border-dashed border-[#FB923C] z-20 pointer-events-none"
+                  className="absolute top-0 bottom-0 w-px border-l border-dashed border-[#22C55E] z-20 pointer-events-none"
                 >
-                  <span className="absolute top-1 left-1 px-1 py-0.5 rounded bg-[#F97316] text-[10px] font-mono-tabular text-white whitespace-nowrap">
+                  <span className="absolute top-1 left-1 px-1 py-0.5 rounded bg-[#00AE4D] text-[10px] font-mono-tabular text-white whitespace-nowrap">
                     {hoverTime.toFixed(2)}s
                   </span>
                 </div>
@@ -885,19 +1137,198 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             {/* Playhead Needle */}
             <div
               style={{ left: `${currentTime * pxPerSec}px` }}
-              className="absolute top-0 bottom-0 w-px bg-[#F97316] z-30 pointer-events-none"
+              className="absolute top-0 bottom-0 w-px bg-[#00AE4D] z-30 pointer-events-none"
             >
-              <div className="w-3 h-3 -ml-[5.5px] bg-[#F97316] rounded-b-sm" />
+              <div className="w-3 h-3 -ml-[5.5px] bg-[#00AE4D] rounded-b-sm" />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Unclipped Floating Quick-Add Menus */}
+      {/* Unclipped Floating Context & Quick-Add Menus */}
       {menu && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
-          {menu.kind === "add-track" ? (
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
+          />
+
+          {menu.kind === "clip-ctx" && (
+            <div
+              dir="rtl"
+              style={{ top: `${menu.top}px`, left: `${menu.left}px` }}
+              className="fixed z-50 w-56 rounded-lg bg-[#161B26] border border-[#2C3549] shadow-2xl p-1.5 space-y-1 text-xs"
+            >
+              <div className="px-2 py-1 text-[11px] font-semibold text-[#94A3B8] truncate border-b border-[#252D3D]">
+                {menu.clip.name}
+              </div>
+              <button
+                type="button"
+                disabled={
+                  menu.locked ||
+                  menu.clickTime <= menu.clip.start + 0.12 ||
+                  menu.clickTime >= menu.clip.start + menu.clip.duration - 0.12
+                }
+                onClick={() => {
+                  onSplitClipAtTime(menu.clip.id, menu.clickTime);
+                  setMenu(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-[#E2E8F0] hover:bg-[#00AE4D]/20 hover:text-white disabled:opacity-35 disabled:pointer-events-none flex items-center justify-between transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Scissors className="w-3.5 h-3.5 text-[#00AE4D]" />
+                  <span>کات دقیق همینجا</span>
+                </span>
+                <span className="font-mono-tabular text-[10px] text-[#94A3B8]">
+                  {menu.clickTime.toFixed(1)}s
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={
+                  menu.locked ||
+                  currentTime <= menu.clip.start + 0.12 ||
+                  currentTime >= menu.clip.start + menu.clip.duration - 0.12
+                }
+                onClick={() => {
+                  onSplitClipAtTime(menu.clip.id, currentTime);
+                  setMenu(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-[#E2E8F0] hover:bg-[#252D3D] disabled:opacity-35 disabled:pointer-events-none flex items-center gap-2 transition-colors"
+              >
+                <Scissors className="w-3.5 h-3.5 text-[#38BDF8]" />
+                <span>کات در محل هد پخش (S)</span>
+              </button>
+              <button
+                type="button"
+                disabled={
+                  menu.locked ||
+                  currentTime <= menu.clip.start + 0.12 ||
+                  currentTime >= menu.clip.start + menu.clip.duration - 0.12
+                }
+                onClick={() => {
+                  onSelectClip(menu.clip.id);
+                  onTrimSelectedToPlayhead("start");
+                  setMenu(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-[#CBD5E1] hover:bg-[#252D3D] disabled:opacity-35 disabled:pointer-events-none text-right transition-colors"
+              >
+                حذف ابتدای کلیپ تا هد پخش
+              </button>
+              <button
+                type="button"
+                disabled={
+                  menu.locked ||
+                  currentTime <= menu.clip.start + 0.12 ||
+                  currentTime >= menu.clip.start + menu.clip.duration - 0.12
+                }
+                onClick={() => {
+                  onSelectClip(menu.clip.id);
+                  onTrimSelectedToPlayhead("end");
+                  setMenu(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-[#CBD5E1] hover:bg-[#252D3D] disabled:opacity-35 disabled:pointer-events-none text-right transition-colors"
+              >
+                حذف انتهای کلیپ از هد پخش
+              </button>
+              <div className="h-px bg-[#252D3D] my-1" />
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectClip(menu.clip.id);
+                  onDuplicateSelected();
+                  setMenu(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-[#E2E8F0] hover:bg-[#252D3D] flex items-center gap-2 transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>تکثیر کلیپ</span>
+              </button>
+              <button
+                type="button"
+                disabled={menu.locked}
+                onClick={() => {
+                  onDeleteClipById(menu.clip.id, false);
+                  setMenu(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-red-400 hover:bg-red-500/15 disabled:opacity-35 flex items-center gap-2 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>حذف کلیپ</span>
+              </button>
+              <button
+                type="button"
+                disabled={menu.locked}
+                onClick={() => {
+                  onDeleteClipById(menu.clip.id, true);
+                  setMenu(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-red-300 hover:bg-red-500/15 disabled:opacity-35 flex items-center gap-2 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>حذف + جمع‌کردن فاصله</span>
+              </button>
+            </div>
+          )}
+
+          {menu.kind === "lane-ctx" && (
+            <div
+              dir="rtl"
+              style={{ top: `${menu.top}px`, left: `${menu.left}px` }}
+              className="fixed z-50 w-56 rounded-lg bg-[#161B26] border border-[#2C3549] shadow-2xl p-1.5 space-y-1 text-xs"
+            >
+              <div className="px-2 py-1 text-[11px] font-semibold text-[#94A3B8] flex items-center justify-between border-b border-[#252D3D]">
+                <span className="truncate">{menu.track.name}</span>
+                <span className="font-mono-tabular text-[#00AE4D]">{menu.clickTime.toFixed(1)}s</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const pos = clampMenuPos(menu.left, menu.top - 120, 290, 330);
+                  setMenu({
+                    kind: "add-clip",
+                    track: menu.track,
+                    insertAt: menu.clickTime,
+                    ...pos,
+                  });
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-[#22C55E] hover:bg-[#00AE4D]/15 flex items-center gap-2 font-medium transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>افزودن کلیپ در {menu.clickTime.toFixed(1)}s...</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  triggerFileUpload(
+                    menu.track.id,
+                    menu.track.kind === "audio" ? "audio/*" : "video/*,image/*",
+                    menu.clickTime
+                  )
+                }
+                className="w-full px-2.5 py-1.5 rounded text-[#E2E8F0] hover:bg-[#252D3D] flex items-center gap-2 transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5 text-[#38BDF8]" />
+                <span>آپلود فایل از سیستم...</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onSeek(menu.clickTime);
+                  setMenu(null);
+                }}
+                className="w-full px-2.5 py-1.5 rounded text-[#CBD5E1] hover:bg-[#252D3D] text-right transition-colors"
+              >
+                انتقال هد پخش به {menu.clickTime.toFixed(1)}s
+              </button>
+            </div>
+          )}
+
+          {menu.kind === "add-track" && (
             <div
               dir="rtl"
               style={{ top: `${menu.top}px`, left: `${menu.left}px` }}
@@ -951,18 +1382,20 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                 <span>لایه صدا / موسیقی</span>
               </button>
             </div>
-          ) : (
+          )}
+
+          {menu.kind === "add-clip" && (
             <div
               dir="rtl"
               style={{ top: `${menu.top}px`, left: `${menu.left}px` }}
-              className="fixed z-50 w-72 max-h-[310px] overflow-y-auto rounded-lg bg-[#161B26] border border-[#2C3549] shadow-2xl p-2 space-y-2"
+              className="fixed z-50 w-72 max-h-[330px] overflow-y-auto rounded-lg bg-[#161B26] border border-[#2C3549] shadow-2xl p-2 space-y-2"
             >
               <div className="flex items-center justify-between px-1 pb-1 border-b border-[#252D3D]">
                 <span className="text-[11px] font-semibold text-white truncate">
                   {menu.track ? `افزودن به «${menu.track.name}»` : "افزودن سریع به تایم‌لاین"}
                 </span>
-                <span className="text-[10px] font-mono-tabular text-[#F97316]">
-                  @{currentTime.toFixed(1)}s
+                <span className="text-[10px] font-mono-tabular text-[#00AE4D]">
+                  @{(menu.insertAt ?? currentTime).toFixed(1)}s
                 </span>
               </div>
 
@@ -971,7 +1404,9 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                 <div className="space-y-1">
                   <button
                     type="button"
-                    onClick={() => triggerFileUpload(menu.track?.id ?? null, "video/*,image/*")}
+                    onClick={() =>
+                      triggerFileUpload(menu.track?.id ?? null, "video/*,image/*", menu.insertAt)
+                    }
                     className="w-full px-2.5 py-1.5 rounded bg-[#1D3557]/60 hover:bg-[#1D3557] text-xs font-medium text-[#DBEAFE] flex items-center gap-2 transition-colors"
                   >
                     <Upload className="w-3.5 h-3.5" />
@@ -981,13 +1416,17 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   <div className="max-h-32 overflow-y-auto space-y-1">
                     {mediaAssets
                       .filter((a) => a.kind === "image" || a.kind === "video")
-                      .slice(0, 10)
+                      .slice(0, 12)
                       .map((asset) => (
                         <button
                           key={asset.id}
                           type="button"
                           onClick={() => {
-                            onQuickAddToTrack(menu.track?.id ?? null, { type: "asset", asset });
+                            onQuickAddToTrack(
+                              menu.track?.id ?? null,
+                              { type: "asset", asset },
+                              menu.insertAt
+                            );
                             setMenu(null);
                           }}
                           className="w-full px-2 py-1 rounded text-[11px] text-[#CBD5E1] hover:bg-[#252D3D] flex items-center gap-2 text-right transition-colors"
@@ -1006,7 +1445,11 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      onQuickAddToTrack(menu.track?.id ?? null, { type: "text-headline" });
+                      onQuickAddToTrack(
+                        menu.track?.id ?? null,
+                        { type: "text-headline" },
+                        menu.insertAt
+                      );
                       setMenu(null);
                     }}
                     className="w-full px-2.5 py-1.5 rounded text-xs text-[#F3E8FF] bg-[#31214F]/60 hover:bg-[#31214F] flex items-center gap-2 transition-colors"
@@ -1017,12 +1460,16 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      onQuickAddToTrack(menu.track?.id ?? null, { type: "text-caption" });
+                      onQuickAddToTrack(
+                        menu.track?.id ?? null,
+                        { type: "text-caption" },
+                        menu.insertAt
+                      );
                       setMenu(null);
                     }}
                     className="w-full px-2.5 py-1.5 rounded text-xs text-[#F3E8FF] bg-[#31214F]/60 hover:bg-[#31214F] flex items-center gap-2 transition-colors"
                   >
-                    <Type className="w-3.5 h-3.5 text-[#F97316]" />
+                    <Type className="w-3.5 h-3.5 text-[#00AE4D]" />
                     <span>زیرنویس کارائوکه کلمه‌به‌کلمه</span>
                   </button>
                 </div>
@@ -1034,12 +1481,16 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      onQuickAddToTrack(menu.track?.id ?? null, {
-                        type: "sticker",
-                        stickerId: "follow-cta",
-                        label: "همین الان سفارش بده!",
-                        accent: "#F97316",
-                      });
+                      onQuickAddToTrack(
+                        menu.track?.id ?? null,
+                        {
+                          type: "sticker",
+                          stickerId: "follow-cta",
+                          label: "همین الان سفارش بده!",
+                          accent: "#00AE4D",
+                        },
+                        menu.insertAt
+                      );
                       setMenu(null);
                     }}
                     className="w-full px-2.5 py-1.5 rounded text-xs text-[#FEF3C7] bg-[#422B12]/60 hover:bg-[#422B12] flex items-center gap-2 transition-colors"
@@ -1050,12 +1501,16 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      onQuickAddToTrack(menu.track?.id ?? null, {
-                        type: "sticker",
-                        stickerId: "new-badge",
-                        label: "تضمین کیفیت و نصب",
-                        accent: "#10B981",
-                      });
+                      onQuickAddToTrack(
+                        menu.track?.id ?? null,
+                        {
+                          type: "sticker",
+                          stickerId: "new-badge",
+                          label: "تضمین کیفیت و نصب",
+                          accent: "#10B981",
+                        },
+                        menu.insertAt
+                      );
                       setMenu(null);
                     }}
                     className="w-full px-2.5 py-1.5 rounded text-xs text-[#FEF3C7] bg-[#422B12]/60 hover:bg-[#422B12] flex items-center gap-2 transition-colors"
@@ -1066,10 +1521,11 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      onQuickAddToTrack(menu.track?.id ?? null, {
-                        type: "shape",
-                        shapeKind: "gradient-scrim",
-                      });
+                      onQuickAddToTrack(
+                        menu.track?.id ?? null,
+                        { type: "shape", shapeKind: "gradient-scrim" },
+                        menu.insertAt
+                      );
                       setMenu(null);
                     }}
                     className="w-full px-2.5 py-1.5 rounded text-xs text-[#CBD5E1] hover:bg-[#252D3D] flex items-center gap-2 transition-colors"
@@ -1085,7 +1541,9 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                 <div className="space-y-1">
                   <button
                     type="button"
-                    onClick={() => triggerFileUpload(menu.track?.id ?? null, "audio/*")}
+                    onClick={() =>
+                      triggerFileUpload(menu.track?.id ?? null, "audio/*", menu.insertAt)
+                    }
                     className="w-full px-2.5 py-1.5 rounded bg-[#10392E]/70 hover:bg-[#10392E] text-xs font-medium text-[#D1FAE5] flex items-center gap-2 transition-colors"
                   >
                     <Upload className="w-3.5 h-3.5" />
@@ -1098,7 +1556,11 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                         key={asset.id}
                         type="button"
                         onClick={() => {
-                          onQuickAddToTrack(menu.track?.id ?? null, { type: "asset", asset });
+                          onQuickAddToTrack(
+                            menu.track?.id ?? null,
+                            { type: "asset", asset },
+                            menu.insertAt
+                          );
                           setMenu(null);
                         }}
                         className="w-full px-2 py-1 rounded text-[11px] text-[#D1FAE5] hover:bg-[#252D3D] flex items-center gap-2 text-right transition-colors"
@@ -1110,18 +1572,22 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      onQuickAddToTrack(menu.track?.id ?? null, {
-                        type: "synth",
-                        synthId: "reels-pulse",
-                        name: "موزیک هیجانی ۱۲۶ BPM",
-                        duration: 16,
-                      });
+                      onQuickAddToTrack(
+                        menu.track?.id ?? null,
+                        {
+                          type: "synth",
+                          synthId: "reels-pulse",
+                          name: "موزیک هیجانی سرضرب ۱۲۸ BPM",
+                          duration: 16,
+                        },
+                        menu.insertAt
+                      );
                       setMenu(null);
                     }}
                     className="w-full px-2 py-1 rounded text-[11px] text-[#D1FAE5] hover:bg-[#252D3D] flex items-center gap-2 text-right transition-colors"
                   >
-                    <Music className="w-3 h-3 text-[#F97316] shrink-0" />
-                    <span>موزیک ریتمیک هیجانی ۱۲۶ BPM</span>
+                    <Music className="w-3 h-3 text-[#00AE4D] shrink-0" />
+                    <span>موزیک ریتمیک هیجانی ۱۲۸ BPM</span>
                   </button>
                 </div>
               )}

@@ -269,7 +269,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
               onClick={() => onTabChange(t.id)}
               className={`w-13 py-2 rounded-lg flex flex-col items-center gap-1 text-[10px] font-medium transition-colors ${
                 active
-                  ? "bg-[#1B212E] text-[#F97316]"
+                  ? "bg-[#1B212E] text-[#00AE4D]"
                   : "text-[#94A3B8] hover:text-white hover:bg-[#161B26]"
               }`}
             >
@@ -297,7 +297,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   key={tpl.id}
                   type="button"
                   onClick={() => onLoadTemplate(tpl.id)}
-                  className="group text-right rounded-lg overflow-hidden border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] transition-colors flex flex-col"
+                  className="group text-right rounded-lg overflow-hidden border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] transition-colors flex flex-col"
                 >
                   <div className="aspect-[9/13] w-full overflow-hidden bg-[#1B212E] relative">
                     <img
@@ -347,9 +347,9 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full py-3 px-3 rounded-lg border border-dashed border-[#334057] hover:border-[#F97316] bg-[#0B0D11] text-xs font-medium text-[#E2E8F0] flex items-center justify-center gap-2 transition-colors"
+              className="w-full py-3 px-3 rounded-lg border border-dashed border-[#334057] hover:border-[#00AE4D] bg-[#0B0D11] text-xs font-medium text-[#E2E8F0] flex items-center justify-center gap-2 transition-colors"
             >
-              <Upload className="w-4 h-4 text-[#F97316]" />
+              <Upload className="w-4 h-4 text-[#00AE4D]" />
               <span>آپلود ویدیو یا تصویر از سیستم</span>
             </button>
 
@@ -365,7 +365,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                       key={asset.id}
                       type="button"
                       onClick={() => onAddMediaAssetToTimeline(asset)}
-                      className="group relative rounded-lg overflow-hidden border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-right transition-colors"
+                      className="group relative rounded-lg overflow-hidden border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-right transition-colors"
                     >
                       <div className="aspect-[9/12] w-full bg-[#1B212E] overflow-hidden relative">
                         {asset.kind === "video" ? (
@@ -415,7 +415,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   onClick={() =>
                     onAddTextClip(preset.style, preset.id === "karaoke-caption")
                   }
-                  className="w-full p-3 rounded-lg border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-right flex items-center justify-between gap-2 transition-colors"
+                  className="w-full p-3 rounded-lg border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-right flex items-center justify-between gap-2 transition-colors"
                 >
                   <div>
                     <div
@@ -430,7 +430,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                         : `فونت ${preset.style.fontFamily || "Vazirmatn"}`}
                     </div>
                   </div>
-                  <Plus className="w-4 h-4 text-[#F97316] shrink-0" />
+                  <Plus className="w-4 h-4 text-[#00AE4D] shrink-0" />
                 </button>
               ))}
             </div>
@@ -444,7 +444,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                 value={quickCaptionText}
                 onChange={(e) => setQuickCaptionText(e.target.value)}
                 placeholder="هر جمله را در یک خط بنویسید تا خودکار روی تایم‌لاین زیرنویس شود..."
-                className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#F97316] p-2.5 text-xs text-white placeholder-[#64748B] outline-none resize-none"
+                className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#00AE4D] p-2.5 text-xs text-white placeholder-[#64748B] outline-none resize-none"
               />
               <button
                 type="button"
@@ -453,7 +453,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   onAddQuickCaptions(quickCaptionText);
                   setQuickCaptionText("");
                 }}
-                className="w-full py-2 rounded-lg bg-[#1B212E] hover:bg-[#F97316] hover:text-[#0B0D11] disabled:opacity-40 text-xs font-semibold text-white transition-colors"
+                className="w-full py-2 rounded-lg bg-[#1B212E] hover:bg-[#00AE4D] hover:text-[#0B0D11] disabled:opacity-40 text-xs font-semibold text-white transition-colors"
               >
                 افزودن خودکار زیرنویس‌ها به تایم‌لاین
               </button>
@@ -479,7 +479,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   key={fp.id}
                   type="button"
                   onClick={() => onApplyFilterToSelected(fp.id)}
-                  className="p-2 rounded-lg border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-right transition-colors flex items-center gap-2"
+                  className="p-2 rounded-lg border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-right transition-colors flex items-center gap-2"
                 >
                   <span
                     className="w-7 h-7 rounded-md shrink-0 border border-white/10"
@@ -498,7 +498,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     key={tr.id}
                     type="button"
                     onClick={() => onApplyTransitionToSelected(tr.id)}
-                    className="py-2 px-2.5 rounded-lg border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-[11px] font-medium text-[#CBD5E1] hover:text-white text-right transition-colors truncate"
+                    className="py-2 px-2.5 rounded-lg border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-[11px] font-medium text-[#CBD5E1] hover:text-white text-right transition-colors truncate"
                   >
                     {tr.label}
                   </button>
@@ -524,7 +524,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   key={st.id}
                   type="button"
                   onClick={() => onAddStickerClip(st.id, st.defaultLabel, st.accent)}
-                  className="p-2.5 rounded-lg border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-right transition-colors space-y-1"
+                  className="p-2.5 rounded-lg border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-right transition-colors space-y-1"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-white truncate">{st.name}</span>
@@ -551,7 +551,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     key={sh.kind}
                     type="button"
                     onClick={() => onAddShapeClip(sh.kind)}
-                    className="py-2.5 px-3 rounded-lg border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-[11px] font-medium text-[#E2E8F0] transition-colors"
+                    className="py-2.5 px-3 rounded-lg border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-[11px] font-medium text-[#E2E8F0] transition-colors"
                   >
                     {sh.label}
                   </button>
@@ -572,10 +572,10 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
             </div>
 
             {/* AI Young Male Narrator Word-by-Word Sync Card */}
-            <div className="p-3 rounded-lg border border-[#F97316]/40 bg-[#0B0D11] space-y-2.5">
+            <div className="p-3 rounded-lg border border-[#00AE4D]/40 bg-[#0B0D11] space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-[#F97316]" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#00AE4D]" />
                   نریشن آقای جوان (سینک کلمه‌به‌کلمه)
                 </span>
                 <span className="text-[10px] font-mono-tabular text-[#94A3B8]">
@@ -623,7 +623,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                 type="button"
                 disabled={narrationState.active || captionCount === 0}
                 onClick={() => onGenerateProjectNarration(narratorVoice, narratorStyle)}
-                className="w-full py-2 px-3 rounded-lg bg-[#F97316] hover:bg-[#FB923C] disabled:opacity-50 text-[#0B0D11] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors"
+                className="w-full py-2 px-3 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] disabled:opacity-50 text-[#0B0D11] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors"
               >
                 {narrationState.active ? (
                   <>
@@ -665,7 +665,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
               <button
                 type="button"
                 onClick={() => audioFileInputRef.current?.click()}
-                className="py-2.5 px-2.5 rounded-lg border border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-xs font-medium text-[#E2E8F0] flex items-center justify-center gap-1.5 transition-colors"
+                className="py-2.5 px-2.5 rounded-lg border border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-xs font-medium text-[#E2E8F0] flex items-center justify-center gap-1.5 transition-colors"
               >
                 <Upload className="w-3.5 h-3.5 text-[#34D399]" />
                 <span>آپلود MP3/WAV</span>
@@ -677,7 +677,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                 className={`py-2.5 px-2.5 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                   isRecording
                     ? "bg-red-500/20 border-red-500 text-red-300"
-                    : "border-[#252D3D] hover:border-[#F97316] bg-[#0B0D11] text-[#E2E8F0]"
+                    : "border-[#252D3D] hover:border-[#00AE4D] bg-[#0B0D11] text-[#E2E8F0]"
                 }`}
               >
                 {isRecording ? (
@@ -687,7 +687,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   </>
                 ) : (
                   <>
-                    <Mic className="w-3.5 h-3.5 text-[#F97316]" />
+                    <Mic className="w-3.5 h-3.5 text-[#00AE4D]" />
                     <span>ضبط نریشن</span>
                   </>
                 )}
@@ -720,7 +720,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                       title="پیش‌شنید"
                       className={`p-1.5 rounded-md ${
                         previewingId === tr.id
-                          ? "bg-[#F97316] text-[#0B0D11]"
+                          ? "bg-[#00AE4D] text-[#0B0D11]"
                           : "bg-[#1B212E] text-[#CBD5E1] hover:text-white"
                       }`}
                     >
@@ -756,7 +756,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                       onClick={() => previewSynth(tr.id)}
                       className={`p-1.5 rounded-md ${
                         previewingId === tr.id
-                          ? "bg-[#F97316] text-[#0B0D11]"
+                          ? "bg-[#00AE4D] text-[#0B0D11]"
                           : "bg-[#1B212E] text-[#CBD5E1] hover:text-white"
                       }`}
                     >
@@ -802,7 +802,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                   }}
                   className={`py-1.5 rounded-md text-[11px] font-medium transition-colors ${
                     aiSubTab === st.id
-                      ? "bg-[#1B212E] text-[#F97316]"
+                      ? "bg-[#1B212E] text-[#00AE4D]"
                       : "text-[#94A3B8] hover:text-white"
                   }`}
                 >
@@ -827,7 +827,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     value={scriptTopic}
                     onChange={(e) => setScriptTopic(e.target.value)}
                     placeholder="مثلاً: معرفی دوره عکاسی موبایل با ۳ تکنیک نورپردازی خانگی..."
-                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#F97316] p-2.5 text-xs text-white placeholder-[#64748B] outline-none resize-none"
+                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#00AE4D] p-2.5 text-xs text-white placeholder-[#64748B] outline-none resize-none"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -867,7 +867,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     });
                     if (data) setScriptResult(data);
                   }}
-                  className="w-full py-2.5 rounded-lg bg-[#F97316] hover:bg-[#FB923C] disabled:opacity-40 text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                  className="w-full py-2.5 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] disabled:opacity-40 text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
                 >
                   {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                   <span>تولید سناریو و صحنه‌بندی</span>
@@ -876,7 +876,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                 {scriptResult && (
                   <div className="p-3 rounded-lg bg-[#0B0D11] border border-[#252D3D] space-y-2.5 text-xs">
                     <div className="font-bold text-white">{scriptResult.projectTitle}</div>
-                    <div className="text-[11px] text-[#F97316]">هوک: {scriptResult.hookText}</div>
+                    <div className="text-[11px] text-[#00AE4D]">هوک: {scriptResult.hookText}</div>
                     <div className="space-y-1.5 max-h-48 overflow-y-auto">
                       {scriptResult.scenes.map((sc, i) => (
                         <div key={i} className="p-2 rounded bg-[#131720] border border-[#1E2534] space-y-0.5">
@@ -912,7 +912,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     value={captionInput}
                     onChange={(e) => setCaptionInput(e.target.value)}
                     placeholder="متن کامل صحبت‌های ریلز را اینجا بنویسید تا به زیرنویس کارائوکه زمان‌بندی‌شده تبدیل شود..."
-                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#F97316] p-2.5 text-xs text-white placeholder-[#64748B] outline-none resize-none"
+                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#00AE4D] p-2.5 text-xs text-white placeholder-[#64748B] outline-none resize-none"
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -936,7 +936,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     );
                     if (data?.segments) setCaptionSegments(data.segments);
                   }}
-                  className="w-full py-2.5 rounded-lg bg-[#F97316] hover:bg-[#FB923C] disabled:opacity-40 text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                  className="w-full py-2.5 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] disabled:opacity-40 text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
                 >
                   {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                   <span>زمان‌بندی هوشمند زیرنویس‌ها</span>
@@ -975,7 +975,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     value={socialTopic}
                     onChange={(e) => setSocialTopic(e.target.value)}
                     placeholder="مثلاً: رونمایی از کالکشن پاییزه کیف چرم..."
-                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#F97316] p-2.5 text-xs text-white placeholder-[#64748B] outline-none"
+                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#00AE4D] p-2.5 text-xs text-white placeholder-[#64748B] outline-none"
                   />
                 </div>
                 <button
@@ -987,7 +987,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     });
                     if (data) setSocialResult(data);
                   }}
-                  className="w-full py-2.5 rounded-lg bg-[#F97316] hover:bg-[#FB923C] disabled:opacity-40 text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                  className="w-full py-2.5 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] disabled:opacity-40 text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
                 >
                   {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                   <span>تولید کپشن، هشتگ و هوک وایرال</span>
@@ -1002,7 +1002,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                           key={i}
                           type="button"
                           onClick={() => onAddTextClip({ fontFamily: "Lalezar", fontSize: 78 }, false, hook)}
-                          className="w-full text-right p-2 rounded-lg bg-[#0B0D11] border border-[#252D3D] hover:border-[#F97316] text-[11px] text-[#E2E8F0] transition-colors"
+                          className="w-full text-right p-2 rounded-lg bg-[#0B0D11] border border-[#252D3D] hover:border-[#00AE4D] text-[11px] text-[#E2E8F0] transition-colors"
                         >
                           {hook}
                         </button>
@@ -1014,7 +1014,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                       {socialResult.captions.map((cap, i) => (
                         <div key={i} className="p-2.5 rounded-lg bg-[#0B0D11] border border-[#252D3D] space-y-1.5">
                           <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-[#F97316]">{cap.style}</span>
+                            <span className="text-[11px] font-bold text-[#00AE4D]">{cap.style}</span>
                             <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
@@ -1045,7 +1045,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                         <button
                           type="button"
                           onClick={() => handleCopyText("tags", socialResult.hashtags.join(" "))}
-                          className="text-[10px] text-[#F97316] hover:underline"
+                          className="text-[10px] text-[#00AE4D] hover:underline"
                         >
                           {copiedIdx === "tags" ? "کپی شد" : "کپی همه"}
                         </button>
@@ -1069,7 +1069,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     value={styleMood}
                     onChange={(e) => setStyleMood(e.target.value)}
                     placeholder="مثلاً: تیره و مرموز شبیه تبلیغات عطر فرانسوی با ریتم آرام..."
-                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#F97316] p-2.5 text-xs text-white placeholder-[#64748B] outline-none resize-none"
+                    className="w-full rounded-lg bg-[#0B0D11] border border-[#252D3D] focus:border-[#00AE4D] p-2.5 text-xs text-white placeholder-[#64748B] outline-none resize-none"
                   />
                 </div>
                 <button
@@ -1081,7 +1081,7 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                     });
                     if (data) setStyleResult(data);
                   }}
-                  className="w-full py-2.5 rounded-lg bg-[#F97316] hover:bg-[#FB923C] disabled:opacity-40 text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                  className="w-full py-2.5 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] disabled:opacity-40 text-[#0B0D11] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
                 >
                   {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}
                   <span>پیشنهاد کارگردانی رنگ و استایل</span>

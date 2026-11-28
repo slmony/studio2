@@ -66,7 +66,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === "Escape") setEditingTitle(false);
             }}
-            className="bg-[#0B0D11] border border-[#F97316] rounded px-2.5 py-1 text-xs text-[#F8FAFC] w-44 outline-none"
+            className="bg-[#0B0D11] border border-[#00AE4D] rounded px-2.5 py-1 text-xs text-[#F8FAFC] w-44 outline-none"
           />
         ) : (
           <button
@@ -165,7 +165,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           type="button"
           onClick={onOpenExport}
-          className="px-4 py-2 rounded-lg bg-[#F97316] hover:bg-[#FB923C] text-[#0B0D11] text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
+          className="px-4 py-2 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] text-[#0B0D11] text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
         >
           <Download className="w-4 h-4" />
           <span>خروجی MP4</span>

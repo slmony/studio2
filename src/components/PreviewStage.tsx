@@ -209,7 +209,7 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
             title="منطقه امن ریلز و استوری اینستاگرام"
             className={`px-2 py-1 rounded text-[11px] flex items-center gap-1 transition-colors whitespace-nowrap ${
               showSafeZone
-                ? "bg-[#F97316]/20 text-[#FB923C]"
+                ? "bg-[#00AE4D]/20 text-[#22C55E]"
                 : "text-[#94A3B8] hover:text-white hover:bg-[#1B212E]"
             }`}
           >
@@ -222,7 +222,7 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
             title="خطوط ترازبندی یک‌سوم"
             className={`px-2 py-1 rounded text-[11px] flex items-center gap-1 transition-colors whitespace-nowrap ${
               showGrid
-                ? "bg-[#F97316]/20 text-[#FB923C]"
+                ? "bg-[#00AE4D]/20 text-[#22C55E]"
                 : "text-[#94A3B8] hover:text-white hover:bg-[#1B212E]"
             }`}
           >
@@ -253,7 +253,7 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
       {/* Transport Playback Controls */}
       <div className="h-12 shrink-0 px-5 border-t border-[#1B212E] bg-[#131720] flex items-center justify-between gap-4 select-none">
         <div className="flex items-center gap-2 font-mono-tabular text-xs text-[#CBD5E1] shrink-0" dir="ltr">
-          <span className="text-[#F97316] font-semibold">{formatTimecode(currentTime)}</span>
+          <span className="text-[#00AE4D] font-semibold">{formatTimecode(currentTime)}</span>
           <span className="text-[#475569]">/</span>
           <span className="text-[#94A3B8]">{formatTimecode(totalDuration)}</span>
         </div>
@@ -279,7 +279,7 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
             type="button"
             onClick={onTogglePlay}
             title="پخش / توقف (Space)"
-            className="w-9 h-9 rounded-full bg-[#F97316] hover:bg-[#FB923C] text-[#0B0D11] flex items-center justify-center transition-colors mx-1"
+            className="w-9 h-9 rounded-full bg-[#00AE4D] hover:bg-[#22C55E] text-[#0B0D11] flex items-center justify-center transition-colors mx-1"
           >
             {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
           </button>
@@ -307,7 +307,7 @@ export const PreviewStage: React.FC<PreviewStageProps> = ({
             onClick={onToggleLoop}
             title="پخش حلقه‌ای"
             className={`p-1.5 rounded-md transition-colors ${
-              isLooping ? "bg-[#F97316]/20 text-[#FB923C]" : "text-[#94A3B8] hover:text-white hover:bg-[#1B212E]"
+              isLooping ? "bg-[#00AE4D]/20 text-[#22C55E]" : "text-[#94A3B8] hover:text-white hover:bg-[#1B212E]"
             }`}
           >
             <Repeat className="w-4 h-4" />

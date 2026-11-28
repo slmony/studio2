@@ -125,7 +125,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         {/* Header */}
         <div className="px-5 py-4 border-b border-[#252D3D] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <Film className="w-5 h-5 text-[#F97316]" />
+            <Film className="w-5 h-5 text-[#00AE4D]" />
             <h2 className="text-sm font-bold text-white">خروجی نهایی ویدیو (MP4 اینستاگرام)</h2>
           </div>
           <button
@@ -169,7 +169,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                     <button
                       type="button"
                       onClick={handleDownload}
-                      className="px-4 py-2 rounded-lg bg-[#F97316] hover:bg-[#FB923C] text-[#0B0D11] font-bold flex items-center gap-2 transition-colors"
+                      className="px-4 py-2 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] text-[#0B0D11] font-bold flex items-center gap-2 transition-colors"
                     >
                       <Download className="w-4 h-4" />
                       <span>دانلود فایل {result.extension.toUpperCase()}</span>
@@ -221,17 +221,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   />
                 ) : (
                   <div className="w-20 h-32 rounded border border-[#252D3D] bg-[#131720] flex items-center justify-center shrink-0">
-                    <Loader2 className="w-6 h-6 text-[#F97316] animate-spin" />
+                    <Loader2 className="w-6 h-6 text-[#00AE4D] animate-spin" />
                   </div>
                 )}
                 <div className="flex-1 space-y-2.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-white">{phaseLabels[progress.phase]}</span>
-                    <span className="font-mono-tabular text-[#F97316] font-bold">{progress.progress}%</span>
+                    <span className="font-mono-tabular text-[#00AE4D] font-bold">{progress.progress}%</span>
                   </div>
                   <div className="h-2 w-full bg-[#1B212E] rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-[#F97316] transition-all duration-150"
+                      className="h-full bg-[#00AE4D] transition-all duration-150"
                       style={{ width: `${progress.progress}%` }}
                     />
                   </div>
@@ -341,7 +341,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   type="checkbox"
                   checked={settings.includeAudio}
                   onChange={(e) => setSettings((s) => ({ ...s, includeAudio: e.target.checked }))}
-                  className="accent-[#F97316] w-4 h-4"
+                  className="accent-[#00AE4D] w-4 h-4"
                 />
               </label>
 
@@ -352,7 +352,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 <button
                   type="button"
                   onClick={handleStartExport}
-                  className="px-5 py-2.5 rounded-lg bg-[#F97316] hover:bg-[#FB923C] text-[#0B0D11] text-xs font-bold flex items-center gap-2 transition-colors"
+                  className="px-5 py-2.5 rounded-lg bg-[#00AE4D] hover:bg-[#22C55E] text-[#0B0D11] text-xs font-bold flex items-center gap-2 transition-colors"
                 >
                   <Download className="w-4 h-4" />
                   <span>شروع رندر و ساخت MP4</span>

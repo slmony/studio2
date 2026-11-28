@@ -205,12 +205,24 @@ function drawBackground(
   if (bg.mode === "ambient") {
     // Subtle organic animated studio light orbs + fine floating dust particles
     ctx.save();
+    const useBrandGreen =
+      project.progressBar.color.toUpperCase() === "#00AE4D" ||
+      bg.color2.toUpperCase() === "#0C2919";
     for (let i = 0; i < 3; i++) {
       const ox = w * (0.25 + 0.5 * Math.sin(time * 0.35 + i * 2.1));
       const oy = h * (0.3 + 0.4 * Math.cos(time * 0.28 + i * 1.7));
       const radOrb = w * (0.45 + i * 0.12);
       const orb = ctx.createRadialGradient(ox, oy, 0, ox, oy, radOrb);
-      orb.addColorStop(0, i % 2 === 0 ? "rgba(249, 115, 22, 0.16)" : "rgba(56, 189, 248, 0.11)");
+      orb.addColorStop(
+        0,
+        useBrandGreen
+          ? i % 2 === 0
+            ? "rgba(0, 174, 77, 0.17)"
+            : "rgba(165, 165, 164, 0.11)"
+          : i % 2 === 0
+            ? "rgba(249, 115, 22, 0.16)"
+            : "rgba(56, 189, 248, 0.11)"
+      );
       orb.addColorStop(1, "rgba(0, 0, 0, 0)");
       ctx.fillStyle = orb;
       ctx.fillRect(0, 0, w, h);
@@ -368,8 +380,14 @@ function drawTextOrCaptionClip(
     ctx.save();
     ctx.globalAlpha *= ts.bgOpacity;
     ctx.fillStyle = ts.bgColor;
-    drawRoundedRect(ctx, -boxW / 2, -boxH / 2, boxW, boxH, (ts.bgRadius || 12) * scaleFactor);
+    const rad = (ts.bgRadius || 12) * scaleFactor;
+    drawRoundedRect(ctx, -boxW / 2, -boxH / 2, boxW, boxH, rad);
     ctx.fill();
+    if (clip.kind === "caption") {
+      ctx.strokeStyle = "rgba(165, 165, 164, 0.38)";
+      ctx.lineWidth = Math.max(1, 1.6 * scaleFactor);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -434,7 +452,7 @@ function drawTextOrCaptionClip(
         ctx.textAlign = "center";
         if (isActive) {
           // Draw crisp highlight pill behind the exact active spoken word
-          ctx.fillStyle = ts.highlightColor || "#F97316";
+          ctx.fillStyle = ts.highlightColor || "#00AE4D";
           const hPad = 11 * scaleFactor;
           drawRoundedRect(
             ctx,
@@ -484,7 +502,7 @@ function drawTextOrCaptionClip(
   if (ts.useGradient) {
     const g = ctx.createLinearGradient(0, -totalH / 2, 0, totalH / 2);
     g.addColorStop(0, ts.color);
-    g.addColorStop(1, ts.gradientTo || "#F97316");
+    g.addColorStop(1, ts.gradientTo || "#00AE4D");
     fillStyle = g;
   }
 
@@ -508,7 +526,7 @@ function drawStickerClip(
   clip: Clip,
   scaleFactor: number
 ) {
-  const accent = clip.stickerAccent || "#F97316";
+  const accent = clip.stickerAccent || "#00AE4D";
   const label = clip.stickerLabel || clip.name;
   const s = scaleFactor;
 
@@ -624,7 +642,7 @@ function drawShapeClip(
   scaleFactor: number
 ) {
   const kind = clip.shapeKind || "rect";
-  const fill1 = clip.shapeFill || "#F97316";
+  const fill1 = clip.shapeFill || "#00AE4D";
   const fill2 = clip.shapeFill2 || "rgba(0,0,0,0.8)";
 
   ctx.save();
@@ -766,14 +784,24 @@ function drawGlobalOverlays(
     const gap = 6 * scaleFactor;
     const barW = Math.max(3 * scaleFactor, (totalW - gap * (count - 1)) / count);
     const maxH = 88 * scaleFactor * vz.intensity;
+    const isBrandPalette = vz.color.toUpperCase() === "#00AE4D";
 
     ctx.save();
-    ctx.fillStyle = vz.color;
-    ctx.strokeStyle = vz.color;
-    ctx.lineWidth = 4 * scaleFactor;
-    ctx.globalAlpha = 0.88;
+    ctx.shadowBlur = 12 * scaleFactor;
+    ctx.shadowColor = isBrandPalette ? "rgba(0, 174, 77, 0.55)" : vz.color;
+    ctx.globalAlpha = 0.92;
 
     if (vz.style === "wave") {
+      if (isBrandPalette) {
+        const wg = ctx.createLinearGradient(startX, baseY, startX + totalW, baseY);
+        wg.addColorStop(0, "#00AE4D");
+        wg.addColorStop(0.5, "#A5A5A4");
+        wg.addColorStop(1, "#00AE4D");
+        ctx.strokeStyle = wg;
+      } else {
+        ctx.strokeStyle = vz.color;
+      }
+      ctx.lineWidth = 4 * scaleFactor;
       ctx.beginPath();
       for (let i = 0; i < count; i++) {
         const x = startX + (i / (count - 1)) * totalW;
@@ -797,50 +825,124 @@ function drawGlobalOverlays(
           0.35 * Math.abs(Math.cos(time * 11.3 + i * 1.15));
         const bh = Math.max(6 * scaleFactor, raw * maxH * Math.max(0.35, distCenter));
         const x = startX + i * (barW + gap);
-        if (vz.style === "mirror") {
-          drawRoundedRect(ctx, x, baseY - bh / 2, barW, bh, barW / 2);
+        const topY = vz.style === "mirror" ? baseY - bh / 2 : baseY - bh;
+
+        if (isBrandPalette) {
+          const bg = ctx.createLinearGradient(x, topY, x, topY + bh);
+          if (vz.style === "mirror") {
+            bg.addColorStop(0, "#A5A5A4");
+            bg.addColorStop(0.3, "#00AE4D");
+            bg.addColorStop(0.5, "#34D399");
+            bg.addColorStop(0.7, "#00AE4D");
+            bg.addColorStop(1, "#A5A5A4");
+          } else {
+            bg.addColorStop(0, "#A5A5A4");
+            bg.addColorStop(0.35, "#34D399");
+            bg.addColorStop(1, "#00AE4D");
+          }
+          ctx.fillStyle = bg;
         } else {
-          drawRoundedRect(ctx, x, baseY - bh, barW, bh, barW / 2);
+          ctx.fillStyle = vz.color;
         }
+
+        drawRoundedRect(ctx, x, topY, barW, bh, barW / 2);
         ctx.fill();
       }
     }
     ctx.restore();
   }
 
-  // 3. Brand Watermark & Logo
+  // 3. Brand Watermark & Fixed Bottom Logo
   if (project.watermark.enabled && (project.watermark.handle || project.watermark.logoSrc)) {
     const wm = project.watermark;
-    const padX = 48 * scaleFactor;
-    const padY = 64 * scaleFactor;
-    const fontSize = 30 * scaleFactor * wm.scale;
     ctx.save();
     ctx.globalAlpha = Math.max(0.1, Math.min(1, wm.opacity));
-    ctx.font = `600 ${fontSize}px "Vazirmatn", sans-serif`;
-    ctx.textBaseline = "middle";
-    ctx.shadowBlur = 12 * scaleFactor;
-    ctx.shadowColor = "rgba(0,0,0,0.75)";
 
-    const isRight = wm.corner.includes("right");
-    const isBottom = wm.corner.includes("bottom");
-    const x = isRight ? w - padX : padX;
-    const y = isBottom ? h - padY : padY;
+    const logoImg = wm.logoSrc ? getOrLoadImage(mediaCache, wm.logoSrc) : null;
+    const aspect = logoImg
+      ? logoImg.naturalWidth / Math.max(1, logoImg.naturalHeight)
+      : 1;
 
-    let textOffset = 0;
-    if (wm.logoSrc) {
-      const logoImg = getOrLoadImage(mediaCache, wm.logoSrc);
+    if (wm.corner === "bottom-center") {
+      const cx = w / 2;
+      const targetLogoW = logoImg
+        ? Math.min(w * 0.44, 240 * scaleFactor * wm.scale)
+        : 0;
+      const logoH = logoImg ? targetLogoW / Math.max(0.35, aspect) : 0;
+      const padX = 24 * scaleFactor;
+      const padY = 12 * scaleFactor;
+      const handleFont = Math.max(12, 20 * scaleFactor * wm.scale);
+      const handleGap = wm.handle ? 24 * scaleFactor * wm.scale : 0;
+
+      ctx.font = `700 ${handleFont}px "Vazirmatn", sans-serif`;
+      const handleW = wm.handle ? ctx.measureText(wm.handle).width : 0;
+      const dockW = Math.max(targetLogoW, handleW) + padX * 2;
+      const dockH = logoH + padY * 2 + handleGap;
+      const dockTop = h - 30 * scaleFactor - dockH;
+
+      // Crisp dark emerald-obsidian dock with subtle metallic silver hairline
+      ctx.save();
+      ctx.shadowBlur = 22 * scaleFactor;
+      ctx.shadowColor = "rgba(0, 0, 0, 0.78)";
+      ctx.fillStyle = "rgba(5, 11, 8, 0.68)";
+      drawRoundedRect(ctx, cx - dockW / 2, dockTop, dockW, dockH, 20 * scaleFactor);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(165, 165, 164, 0.36)";
+      ctx.lineWidth = Math.max(1, 1.5 * scaleFactor);
+      ctx.stroke();
+      ctx.restore();
+
       if (logoImg) {
-        const logoSize = 48 * scaleFactor * wm.scale;
-        const lx = isRight ? x - logoSize : x;
-        ctx.drawImage(logoImg, lx, y - logoSize / 2, logoSize, logoSize);
-        textOffset = logoSize + 14 * scaleFactor;
+        ctx.save();
+        ctx.shadowBlur = 10 * scaleFactor;
+        ctx.shadowColor = "rgba(0, 174, 77, 0.35)";
+        ctx.drawImage(
+          logoImg,
+          cx - targetLogoW / 2,
+          dockTop + padY,
+          targetLogoW,
+          logoH
+        );
+        ctx.restore();
       }
-    }
 
-    if (wm.handle) {
-      ctx.fillStyle = "#FFFFFF";
-      ctx.textAlign = isRight ? "right" : "left";
-      ctx.fillText(wm.handle, isRight ? x - textOffset : x + textOffset, y);
+      if (wm.handle) {
+        ctx.fillStyle = "#D4D4D3";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowBlur = 8 * scaleFactor;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+        ctx.fillText(wm.handle, cx, dockTop + padY + logoH + handleGap * 0.62);
+      }
+    } else {
+      const padX = 48 * scaleFactor;
+      const padY = 64 * scaleFactor;
+      const fontSize = 30 * scaleFactor * wm.scale;
+      ctx.font = `600 ${fontSize}px "Vazirmatn", sans-serif`;
+      ctx.textBaseline = "middle";
+      ctx.shadowBlur = 12 * scaleFactor;
+      ctx.shadowColor = "rgba(0,0,0,0.75)";
+
+      const isRight = wm.corner.includes("right");
+      const isBottom = wm.corner.includes("bottom");
+      const x = isRight ? w - padX : padX;
+      const y = isBottom ? h - padY : padY;
+
+      let textOffset = 0;
+      if (logoImg) {
+        const logoH = 48 * scaleFactor * wm.scale;
+        const logoW = Math.min(w * 0.28, logoH * aspect);
+        const lx = isRight ? x - logoW : x;
+        ctx.drawImage(logoImg, lx, y - logoH / 2, logoW, logoH);
+        textOffset = logoW + 14 * scaleFactor;
+      }
+
+      if (wm.handle) {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.textAlign = isRight ? "right" : "left";
+        ctx.fillText(wm.handle, isRight ? x - textOffset : x + textOffset, y);
+      }
     }
     ctx.restore();
   }
@@ -918,7 +1020,7 @@ function drawEditorGuides(
     const cx = w / 2 + selectedClip.transform.x * w;
     const cy = h / 2 + selectedClip.transform.y * h;
     ctx.save();
-    ctx.strokeStyle = "#F97316";
+    ctx.strokeStyle = "#00AE4D";
     ctx.lineWidth = Math.max(2, 3 * scaleFactor);
     ctx.setLineDash([8 * scaleFactor, 6 * scaleFactor]);
     const bw = selectedClip.kind === "image" || selectedClip.kind === "video" ? w * 0.92 * selectedClip.transform.scale : w * 0.78 * selectedClip.transform.scale;
@@ -927,7 +1029,7 @@ function drawEditorGuides(
     ctx.rotate((selectedClip.transform.rotation * Math.PI) / 180);
     ctx.strokeRect(-bw / 2, -bh / 2, bw, bh);
     ctx.setLineDash([]);
-    ctx.fillStyle = "#F97316";
+    ctx.fillStyle = "#00AE4D";
     ctx.beginPath();
     ctx.arc(0, 0, 7 * scaleFactor, 0, Math.PI * 2);
     ctx.fill();

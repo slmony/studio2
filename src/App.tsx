@@ -19,6 +19,7 @@ import {
   INITIAL_STOCK_ASSETS,
   REEL_TEMPLATES,
   STOCK_VISUALS,
+  createNewProductProject,
   makeClip,
 } from "./data/presets";
 import {
@@ -33,9 +34,8 @@ import {
   renderFrame,
 } from "./engine/canvasRenderer";
 import {
+  bootstrapStudioWorkspace,
   deleteProjectFromLibrary,
-  loadDraftProject,
-  loadSavedProjects,
   saveDraftProject,
   saveProjectToLibrary,
 } from "./engine/storage";
@@ -60,7 +60,7 @@ import type {
 } from "./types/studio";
 
 const DEFAULT_NARRATOR_STYLE =
-  "Energetic, enthusiastic young Persian male commercial narrator, crisp diction, vibrant and exciting promotional pace";
+  "Consistent, steady, confident young Persian male commercial narrator, uniform calm-confident tone, constant microphone proximity and steady constant volume throughout without shouting or whispering";
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -132,9 +132,19 @@ function splitClipAtTime(clip: Clip, cutTime: number): [Clip, Clip] | null {
 }
 
 export default function App() {
-  const [project, setProject] = useState<ProjectState>(
-    () => loadDraftProject() ?? REEL_TEMPLATES[0].build()
-  );
+  const [initialWorkspace] = useState(() => {
+    const chabaharTpl =
+      REEL_TEMPLATES.find((t) => t.id === "chabahar-dolphin-story") ?? REEL_TEMPLATES[0];
+    const eskimoTpl = REEL_TEMPLATES.find((t) => t.id === "eskimo-dome-story") ?? REEL_TEMPLATES[0];
+    const eluminaTpl = REEL_TEMPLATES.find((t) => t.id === "elumina-tree-story") ?? REEL_TEMPLATES[0];
+    return bootstrapStudioWorkspace(
+      () => eskimoTpl.build(),
+      () => eluminaTpl.build(),
+      () => chabaharTpl.build(),
+      () => createNewProductProject("محصول جدید · عرفان صنعت")
+    );
+  });
+  const [project, setProject] = useState<ProjectState>(() => initialWorkspace.activeProject);
   const [historyPast, setHistoryPast] = useState<ProjectState[]>([]);
   const [historyFuture, setHistoryFuture] = useState<ProjectState[]>([]);
 
@@ -154,7 +164,7 @@ export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [savedProjects, setSavedProjects] = useState<ProjectState[]>(() => loadSavedProjects());
+  const [savedProjects, setSavedProjects] = useState<ProjectState[]>(() => initialWorkspace.savedProjects);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [narrationState, setNarrationState] = useState<NarrationState>({
     active: false,
@@ -511,10 +521,9 @@ export default function App() {
     notify("کلیپ تکثیر شد.");
   }, [selectedClipId, project.clips, mutateProject, notify]);
 
-  const handleDeleteSelected = useCallback(
-    (ripple = false) => {
-      if (!selectedClipId) return;
-      const target = project.clips.find((c) => c.id === selectedClipId);
+  const handleDeleteClipById = useCallback(
+    (clipId: string, ripple = false) => {
+      const target = project.clips.find((c) => c.id === clipId);
       if (!target) return;
       const track = project.tracks.find((t) => t.id === target.trackId);
       if (track?.locked) {
@@ -525,7 +534,7 @@ export default function App() {
       mutateProject((p) => ({
         ...p,
         clips: p.clips
-          .filter((c) => c.id !== selectedClipId)
+          .filter((c) => c.id !== clipId)
           .map((c) => {
             if (ripple && c.trackId === target.trackId && c.start >= removedEnd - 0.05) {
               return { ...c, start: Math.max(0, Number((c.start - target.duration).toFixed(3))) };
@@ -533,10 +542,20 @@ export default function App() {
             return c;
           }),
       }));
-      setSelectedClipId(null);
+      if (selectedClipId === clipId) {
+        setSelectedClipId(null);
+      }
       notify(ripple ? "کلیپ حذف و فاصله‌های بعدی جمع شد." : "کلیپ حذف شد.");
     },
     [selectedClipId, project.clips, project.tracks, mutateProject, notify]
+  );
+
+  const handleDeleteSelected = useCallback(
+    (ripple = false) => {
+      if (!selectedClipId) return;
+      handleDeleteClipById(selectedClipId, ripple);
+    },
+    [selectedClipId, handleDeleteClipById]
   );
 
   const handleAddMarker = useCallback(() => {
@@ -730,9 +749,10 @@ export default function App() {
     selectedClipId,
   ]);
 
-  // Add Media Upload (Video, Image, Audio) — optionally targeted to a specific timeline track
+  // Add Media Upload (Video, Image, Audio) — optionally targeted to a specific timeline track & start time
   const handleUploadMediaFiles = useCallback(
-    async (files: FileList, preferredTrackId?: string | null) => {
+    async (files: FileList, preferredTrackId?: string | null, customStart?: number) => {
+      const insertAt = Number(Math.max(0, customStart ?? currentTime).toFixed(2));
       for (const file of Array.from(files)) {
         const url = URL.createObjectURL(file);
         const cleanName = file.name.replace(/\.[^/.]+$/, "");
@@ -750,7 +770,7 @@ export default function App() {
             kind: "image",
             name: cleanName,
             src: url,
-            start: Number(currentTime.toFixed(2)),
+            start: insertAt,
             duration: 4,
             kenBurns: "zoom-in",
             transitionIn: "dissolve",
@@ -784,7 +804,7 @@ export default function App() {
             kind: "video",
             name: cleanName,
             src: url,
-            start: Number(currentTime.toFixed(2)),
+            start: insertAt,
             duration: Number(dur.toFixed(2)),
             mediaDuration: dur,
             audio: { volume: 1, fadeIn: 0, fadeOut: 0, muted: false, eqPreset: "normal" },
@@ -821,7 +841,7 @@ export default function App() {
             kind: "audio",
             name: cleanName,
             src: url,
-            start: Number(currentTime.toFixed(2)),
+            start: insertAt,
             duration: Number(dur.toFixed(2)),
             audio: {
               volume: 1.0,
@@ -842,13 +862,13 @@ export default function App() {
   );
 
   const handleQuickAddToTrack = useCallback(
-    (trackId: string | null, item: TimelineQuickAddItem) => {
+    (trackId: string | null, item: TimelineQuickAddItem, customStart?: number) => {
       const findTrack = (kind: Track["kind"]): Track =>
         (trackId ? project.tracks.find((t) => t.id === trackId) : undefined) ??
         project.tracks.find((t) => t.kind === kind) ??
         project.tracks[0];
 
-      const startAt = Number(currentTime.toFixed(2));
+      const startAt = Number(Math.max(0, customStart ?? currentTime).toFixed(2));
 
       if (item.type === "asset") {
         const { asset } = item;
@@ -906,9 +926,9 @@ export default function App() {
             fontFamily: isCaption ? "Vazirmatn" : "Lalezar",
             fontSize: isCaption ? 48 : 74,
             fontWeight: 900,
-            bgColor: isCaption ? "#0B0D11" : "#F97316",
+            bgColor: isCaption ? "#0B0D11" : "#00AE4D",
             bgOpacity: isCaption ? 0.72 : 0.9,
-            highlightColor: "#F97316",
+            highlightColor: "#00AE4D",
             text: isCaption ? "متن زیرنویس پویای جدید" : "تیتر جذاب جدید",
           },
         });
@@ -956,7 +976,7 @@ export default function App() {
           kind: "shape",
           name: item.shapeKind === "gradient-scrim" ? "گرادیان تیره خوانایی" : "شکل گرافیکی",
           shapeKind: item.shapeKind,
-          shapeFill: item.shapeKind === "gradient-scrim" ? "rgba(0,0,0,0)" : "#F97316",
+          shapeFill: item.shapeKind === "gradient-scrim" ? "rgba(0,0,0,0)" : "#00AE4D",
           shapeFill2: "rgba(5,7,11,0.85)",
           start: startAt,
           duration: 4,
@@ -1082,7 +1102,7 @@ export default function App() {
             fontWeight: 900,
             bgColor: "#0B0D11",
             bgOpacity: 0.62,
-            highlightColor: "#F97316",
+            highlightColor: "#00AE4D",
           },
         });
         cursor += dur + 0.1;
@@ -1163,7 +1183,7 @@ export default function App() {
         kind: "shape",
         name: shapeKind === "gradient-scrim" ? "گرادیان تیره خوانایی" : "شکل گرافیکی",
         shapeKind,
-        shapeFill: shapeKind === "gradient-scrim" ? "rgba(0,0,0,0)" : "#F97316",
+        shapeFill: shapeKind === "gradient-scrim" ? "rgba(0,0,0,0)" : "#00AE4D",
         shapeFill2: "rgba(5,7,11,0.85)",
         start: Number(currentTime.toFixed(2)),
         duration: 4,
@@ -1270,7 +1290,7 @@ export default function App() {
           id: uid(`aim${idx}`),
           time: Number(cursor.toFixed(2)),
           label: `صحنه ${idx + 1}`,
-          color: idx === 0 ? "#F97316" : "#38BDF8",
+          color: idx === 0 ? "#00AE4D" : "#38BDF8",
         });
 
         newClips.push(
@@ -1304,7 +1324,7 @@ export default function App() {
               fontFamily: "Lalezar",
               fontSize: 78,
               color: "#FFFFFF",
-              bgColor: idx === 0 ? "#F97316" : "#0B0D11",
+              bgColor: idx === 0 ? "#00AE4D" : "#0B0D11",
               bgOpacity: idx === 0 ? 0.92 : 0.45,
             },
           })
@@ -1327,7 +1347,7 @@ export default function App() {
               fontWeight: 800,
               bgColor: "#0B0D11",
               bgOpacity: 0.65,
-              highlightColor: "#F97316",
+              highlightColor: "#00AE4D",
             },
           })
         );
@@ -1345,7 +1365,7 @@ export default function App() {
             name: "کال‌تواکشن هوشمند",
             stickerId: "follow-cta",
             stickerLabel: script.ctaText.slice(0, 28),
-            stickerAccent: "#F97316",
+            stickerAccent: "#00AE4D",
             start: Number(Math.max(0, cursor - 3.2).toFixed(2)),
             duration: 3.1,
             transform: { ...DEFAULT_TRANSFORM, x: 0, y: 0.31 },
@@ -1413,7 +1433,7 @@ export default function App() {
             fontWeight: 900,
             bgColor: "#0B0D11",
             bgOpacity: 0.62,
-            highlightColor: "#F97316",
+            highlightColor: "#00AE4D",
           },
         })
       );
@@ -1430,7 +1450,7 @@ export default function App() {
   const handleApplyAiStyle = useCallback(
     (style: AiStyleDirectorResult) => {
       const fp = FILTER_PRESETS.find((f) => f.id === style.filterPreset) ?? FILTER_PRESETS[1];
-      const accent = style.accentColor?.startsWith("#") ? style.accentColor : "#F97316";
+      const accent = style.accentColor?.startsWith("#") ? style.accentColor : "#00AE4D";
       const textCol = style.textColor?.startsWith("#") ? style.textColor : "#FFFFFF";
       const validTransitions = new Set([
         "dissolve",
@@ -1525,10 +1545,17 @@ export default function App() {
           if (
             c.kind === "audio" &&
             c.audio?.synthId &&
-            !c.audio.synthId.startsWith("sfx-") &&
-            c.audio.volume > 0.32
+            !c.audio.synthId.startsWith("sfx-")
           ) {
-            return { ...c, audio: { ...c.audio, volume: 0.26 } };
+            return {
+              ...c,
+              audio: {
+                ...c.audio,
+                volume: Math.min(c.audio.volume, 0.25),
+                fadeIn: 0,
+                fadeOut: 0,
+              },
+            };
           }
           return c;
         });
@@ -1607,11 +1634,11 @@ export default function App() {
             duration: effectiveDur,
             speed,
             audio: {
-              volume: 1.28,
-              fadeIn: 0.02,
-              fadeOut: 0.06,
+              volume: 1.25,
+              fadeIn: 0,
+              fadeOut: 0,
               muted: false,
-              eqPreset: "voice",
+              eqPreset: "normal",
               waveform,
             },
           });
@@ -1800,6 +1827,7 @@ export default function App() {
         onTrimSelectedToPlayhead={handleTrimSelectedToPlayhead}
         onDuplicateSelected={handleDuplicateSelected}
         onDeleteSelected={handleDeleteSelected}
+        onDeleteClipById={handleDeleteClipById}
         onToggleSnap={() => setSnapEnabled((s) => !s)}
         onAddMarker={handleAddMarker}
         onRemoveMarker={(id) =>
@@ -1810,8 +1838,8 @@ export default function App() {
         onAddTrack={handleAddTrack}
         onDeleteTrack={handleDeleteTrack}
         onQuickAddToTrack={handleQuickAddToTrack}
-        onUploadMediaToTrack={(files, trackId) => {
-          void handleUploadMediaFiles(files, trackId);
+        onUploadMediaToTrack={(files, trackId, customStart) => {
+          void handleUploadMediaFiles(files, trackId, customStart);
         }}
       />
 
@@ -1828,6 +1856,15 @@ export default function App() {
         currentProject={project}
         savedProjects={savedProjects}
         onClose={() => setProjectsOpen(false)}
+        onNewProject={() => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+          setSelectedClipId(null);
+          narrationJobIdRef.current += 1;
+          autoNarratedKeyRef.current = null;
+          mutateProject(() => createNewProductProject("محصول جدید · عرفان صنعت"));
+          notify("پروژه جدید با تم شرکت عرفان صنعت ایجاد شد.");
+        }}
         onOpenProject={(proj) => {
           setIsPlaying(false);
           setCurrentTime(0);
@@ -1852,16 +1889,16 @@ export default function App() {
 
       {/* Live Narration Synthesis Progress Banner */}
       {narrationState.active && (
-        <div className="fixed bottom-6 left-6 z-50 w-80 p-3 rounded-lg bg-[#131720] border border-[#F97316]/60 shadow-2xl space-y-2">
+        <div className="fixed bottom-6 left-6 z-50 w-80 p-3 rounded-lg bg-[#131720] border border-[#00AE4D]/60 shadow-2xl space-y-2">
           <div className="flex items-center justify-between text-xs font-semibold text-white">
             <span>ساخت نریشن آقای جوان و سینک کلمه‌به‌کلمه</span>
-            <span className="font-mono-tabular text-[#F97316]">
+            <span className="font-mono-tabular text-[#00AE4D]">
               {narrationState.current} / {narrationState.total}
             </span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-[#1B212E] overflow-hidden">
             <div
-              className="h-full bg-[#F97316] transition-all duration-300"
+              className="h-full bg-[#00AE4D] transition-all duration-300"
               style={{
                 width: `${Math.round((narrationState.current / Math.max(1, narrationState.total)) * 100)}%`,
               }}
@@ -1872,7 +1909,7 @@ export default function App() {
 
       {/* Crisp Transient Toast */}
       {toastMsg && !narrationState.active && (
-        <div className="fixed bottom-6 left-6 z-50 px-4 py-2.5 rounded-lg bg-[#1B212E] border border-[#F97316]/60 text-xs font-medium text-white shadow-xl pointer-events-none">
+        <div className="fixed bottom-6 left-6 z-50 px-4 py-2.5 rounded-lg bg-[#1B212E] border border-[#00AE4D]/60 text-xs font-medium text-white shadow-xl pointer-events-none">
           {toastMsg}
         </div>
       )}
